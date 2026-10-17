@@ -1,0 +1,174 @@
+# Android setup
+
+Build the Ember Codex Android app and run it on a phone over WiFi.
+
+Everything here is copy-paste. Commands are PowerShell on Windows.
+
+## What you need
+
+| | |
+|---|---|
+| Node | 22 or later |
+| JDK | 21 |
+| Android SDK | platform 36, build-tools 36.0.0, platform-tools |
+
+Android Studio is not needed. Everything below is command line.
+
+## 1. Install the JDK
+
+```powershell
+winget install --id EclipseAdoptium.Temurin.21.JDK -e --accept-package-agreements --accept-source-agreements
+```
+
+Tell Windows where it is:
+
+```powershell
+[Environment]::SetEnvironmentVariable('JAVA_HOME', 'C:\path\to\jdk-21.x.y-hotspot', 'User')
+```
+
+## 2. Install the Android SDK
+
+Download "Command line tools only" from <https://developer.android.com/studio> and unzip it so that `cmdline-tools\latest\bin\` exists inside your SDK folder.
+
+```powershell
+$Sdk = "$env:LOCALAPPDATA\Android\Sdk"
+& "$Sdk\cmdline-tools\latest\bin\android.exe" --sdk="$Sdk" sdk install platform-tools platforms/android-36 build-tools/36.0.0
+```
+
+If it stops to ask about licences:
+
+```powershell
+& "$Sdk\cmdline-tools\latest\bin\sdkmanager.bat" --licenses
+```
+
+## 3. Set environment variables
+
+```powershell
+$Sdk = "$env:LOCALAPPDATA\Android\Sdk"
+[Environment]::SetEnvironmentVariable('ANDROID_HOME', $Sdk, 'User')
+[Environment]::SetEnvironmentVariable('ANDROID_SDK_ROOT', $Sdk, 'User')
+[Environment]::SetEnvironmentVariable('Path', $env:Path + ";$Sdk\platform-tools", 'User')
+```
+
+The third line puts `adb` on your PATH, so the commands below stay short.
+
+**Close the terminal and open a new one.** These are read at startup, so nothing changes until you do.
+
+## 4. Turn on wireless debugging on the phone
+
+Needs Android 11 or newer. Phone and computer on the same WiFi.
+
+1. **Settings → About phone** → tap **Build number** seven times
+2. **Settings → Developer options → Wireless debugging** → on
+3. Tap **Pair device with pairing code**
+
+The dialog shows an IP, a port and a 6-digit code. It closes in under a minute.
+
+## 5. Connect
+
+Run this while the dialog is still open:
+
+```powershell
+adb pair <ip>:<port> <code>
+```
+
+You should see:
+
+```
+Successfully paired to 10.0.0.5:41234
+```
+
+Now go back to **Wireless debugging**, not the pairing dialog. It shows a **different** IP and port. Use that one:
+
+```powershell
+adb connect <ip>:<port>
+adb devices -l
+```
+
+Your phone should be listed.
+
+## 6. Build and install
+
+From the repository root:
+
+```powershell
+npm install; npm run cap:sync; .\android\gradlew.bat -p android assembleDebug
+```
+
+`-p android` points Gradle at the Android project, so you can stay in the repository root.
+
+Install it:
+
+```powershell
+adb install android\app\build\outputs\apk\debug\app-debug.apk
+```
+
+The APK is at `android\app\build\outputs\apk\debug\app-debug.apk`.
+
+The first build downloads Gradle and every dependency, and takes minutes. Later builds take seconds.
+
+## 7. Check it works
+
+```powershell
+adb logcat -c
+adb shell monkey -p com.embercodex.app -c android.intent.category.LAUNCHER 1
+adb logcat -d -s "Capacitor/Console"
+```
+
+Look for this line:
+
+```
+SQLite 3.53.3
+```
+
+That is the pass signal. It means the database opened and every migration ran. The six abilities should be on screen.
+
+**Do not judge by whether the app opens.** It renders a screen even when the database fails, so a broken app can look fine. If you see `Database initialization failed` instead, the database is the problem and the reason is in the same log.
+
+## Everyday loop
+
+After every change:
+
+```powershell
+npm run cap:sync; .\android\gradlew.bat -p android assembleDebug
+adb install android\app\build\outputs\apk\debug\app-debug.apk
+```
+
+The first command rebuilds the web app and copies it into the Android project. The second rebuilds the APK. Skipping either installs the previous build, and you will spend the afternoon debugging code you already fixed.
+
+## Troubleshooting
+
+**`adb` is not recognised** — close the terminal and open a new one. The PATH change needs it.
+
+**`adb devices` is empty**
+
+- Phone and computer are on different WiFi. A work phone and a home laptop will not see each other.
+- The pairing code expired. Open the dialog again and use a fresh code and port.
+- You used the pairing port for `connect`. They are different ports.
+
+**The connection keeps dropping** — wireless debugging ends when the screen locks. Keep the screen on.
+
+**The app runs old code** — you skipped `cap:sync` or the Gradle step. Run all three commands in the everyday loop.
+
+**`JAVA_HOME is not set`** — set it and open a new terminal.
+
+**`SDK processing ... only understands SDK XML versions up to 3`** — harmless.
+
+**Gradle downloads a build-tools version you did not ask for** — harmless.
+
+**Something fails with a policy message instead of an error code** — managed Windows machines block unsigned tools without saying so. Ask your administrator whether `adb.exe` is blocked.
+
+## Notes
+
+`android/` is generated by `npx cap add android` and committed, apart from Gradle output and the copied web assets, which its `.gitignore` covers. `npm run cap:add:android` regenerates it.
+
+Two files were edited by hand and would be lost if the folder were regenerated:
+
+- `android/app/src/main/AndroidManifest.xml`
+- `android/app/src/main/res/xml/data_extraction_rules.xml`
+
+They keep the database out of cloud backup, so a restored backup cannot arrive holding characters whose content rows no longer exist.
+
+## iOS
+
+Not covered. Apple ships the iOS SDK only through Xcode, which needs macOS, so the iOS shell cannot be built or run from any other platform.

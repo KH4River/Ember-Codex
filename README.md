@@ -38,6 +38,12 @@ It is recommended to just run `npm run serve` or `ng serve` (in case the Angular
 | `npm run test` | Unit tests |
 | `npm run watch` | Development build in watch mode |
 | `npm run ng` | Pass anything through to the Angular CLI |
+| `npm run cap:sync` | Rebuild the web app and copy it into the Android project |
+| `npm run cap:add:android` | Regenerate the `android/` folder |
+| `npm run cap:open:android` | Open `android/` in Android Studio |
+| `npm run cap:run:android` | Build and launch on a connected device |
+
+The `cap:*` scripts only cover the web side. The APK itself is built with Gradle, and it needs a JDK and the Android SDK installed first — see [`docs/android-setup.md`](docs/android-setup.md), which covers the whole path from a fresh clone to an app on a phone.
 
 ## Verification
 
@@ -62,6 +68,8 @@ As of writing this, all Electron logic lives within the folder `electron/`.
 | `angular/` | The Angular application, and `angular.json`, which is the workspace root |
 | `shared/` | Platform-agnostic code imported by both shells: the schema, migrations, repositories and models |
 | `electron/` | Main process only, being window, paths and IPC rather than application logic |
+| `android/` | The generated Android shell |
+| `docs/` | `android-setup.md`, for building and running it |
 | `tools/` | Verification harnesses, which are not application code |
 
 Because `angular.json` sits inside `angular/`, the npm scripts `cd angular` before calling `ng`, and running `ng` from the repository root fails with a confusing "not available when running the Angular CLI outside a workspace".
@@ -93,4 +101,4 @@ This is not legal advice, and the licensing position should be reviewed by a law
 | Content packs | Importing character-creation content as JSON, each pack declaring its own licence and attribution |
 | Characters | Creating and saving characters, and listing the ones held on the device |
 | Distribution | Packaged desktop builds, which the development workflow does not produce yet |
-| Mobile | Native shells for Android and iOS |
+| Mobile | An iOS shell. The Android shell exists and builds; iOS needs macOS and Xcode to compile at all |
