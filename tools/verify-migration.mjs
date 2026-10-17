@@ -56,6 +56,31 @@ for (const [i, { name, sql }] of sources.entries()) {
   else ok(`${name} sets user_version ${i + 1} (matches its ordinal)`);
 }
 
+// ---- Migrations must survive the Capacitor plugin's statement split ----
+// On Android the migration does NOT run as a script. The plugin splits it on a
+// literal ";\n" (UtilsSQLite.getStatementsArray), then strips every line comment
+// from each chunk. A chunk that held nothing but comments is left empty, and
+// the plugin hands that empty string to execSQL, which prepares no statement:
+// "API called with NULL prepared statement", SQLITE_MISUSE, surfaced to the app
+// as the useless "Execute: not an error (code 0)". A comment line ending in ";"
+// is what creates such a chunk, by splitting inside a comment block.
+//
+// Nothing else here can see this. node:sqlite applies the file as one script
+// and does not care where the semicolons fall, so every other gate passes while
+// the app cannot open a database on a device.
+let commentSemicolons = 0;
+for (const { name, sql } of sources) {
+  sql.split('\n').forEach((line, i) => {
+    if (/^\s*--.*;\s*$/.test(line)) {
+      commentSemicolons++;
+      fail(`${name}:${i + 1} comment line ends with ";" — the Capacitor plugin splits on ";\\n" and builds an empty statement from the comment block`);
+    }
+  });
+}
+if (commentSemicolons === 0) {
+  ok('no comment line ends with ";" (Capacitor statement split stays intact)');
+}
+
 // Every FK must resolve to a real table and column. SQLite resolves FKs
 // lazily at DML time, so a typo'd target would not surface on CREATE.
 // PRAGMA foreign_key_list takes no argument, so it must be walked per table.

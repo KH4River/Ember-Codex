@@ -389,7 +389,7 @@ CREATE TABLE feature_spell (
 --
 --   Elf / Tiefling lineage : a pair at class levels 3 and 5
 --   Celestial Patron       : Aid, Cure Wounds, Guiding Bolt, Lesser
---                            Restoration, Light, Sacred Flame at 3;
+--                            Restoration, Light, Sacred Flame at 3,
 --                            Daylight, Revivify at 5; Guardian of Faith,
 --                            Wall of Fire at 7; Greater Restoration,
 --                            Summon Celestial at 9

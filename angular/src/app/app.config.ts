@@ -13,7 +13,9 @@ export const appConfig: ApplicationConfig = {
     // screen that reports the database is unavailable.
     provideAppInitializer(async () => {
       try {
-        await inject(DatabaseService).initialize();
+        const database = inject(DatabaseService);
+        await database.initialize();
+        console.info(`SQLite ${await database.sqliteVersion()}`);
       } catch (error) {
         console.error('Database initialization failed', error);
       }

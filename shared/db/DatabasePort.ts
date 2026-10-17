@@ -2,8 +2,8 @@
  * The one database seam.
  *
  * Two shells implement this interface and nothing else:
- *   - mobile and web: the Capacitor SQLite plugin,
- *   - desktop:        node:sqlite behind Electron IPC.
+ *   - mobile: the Capacitor SQLite plugin,
+ *   - desktop: node:sqlite behind Electron IPC.
  *
  * Business SQL never lives in an adapter. Repositories under
  * shared/db/repositories run through this interface, so the same statements
@@ -20,7 +20,16 @@ export interface DatabasePort {
    */
   open(): Promise<void>;
 
-  /** Run a statement or a batch of statements. Used for DDL and migrations. */
+  /**
+   * Run a statement, or a batch of them. Used for DDL and migrations.
+   *
+   * The two shells disagree about how a batch is split. node:sqlite runs the
+   * whole string as a script. The Capacitor plugin splits it itself, on a
+   * literal `;\n`, and strips `--` comments from each chunk -- so a batch must
+   * survive that: no comment line may end in `;`, or the split lands inside a
+   * comment block and the comment-only chunk prepares no statement at all.
+   * `tools/verify-migration.mjs` asserts that rule.
+   */
   exec(sql: string): Promise<void>;
 
   /** Run one parameterised statement (INSERT/UPDATE/DELETE). */
