@@ -3,10 +3,17 @@
   "version": "0.0.0",
   "private": true,
   "main": "electron/build/app.js",
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "ng": "ng",
     "electron": "npm run build:electron && concurrently --kill-others \"cd angular && ng serve\" \"electron .\"",
     "build:electron": "tsc -p electron/tsconfig.json",
+    "cap:add:android": "npm run build && cap add android",
+    "cap:open:android": "cap open android",
+    "cap:run:android": "npm run build && cap run android",
+    "cap:sync": "npm run build && cap sync",
     "serve": "cd angular && ng serve",
     "build": "cd angular && ng build",
     "generate:migrations": "node tools/generate-migrations.mjs",
@@ -38,7 +45,8 @@
     "@angular/platform-browser": "^21.2.25",
     "@angular/router": "^21.2.25",
     "@capacitor-community/sqlite": "^8.1.1",
-    "@capacitor/cli": "^8.5.3",
+    "@capacitor/android": "^8.5.3",
+    "@capacitor/cli": "^8.4.3",
     "@capacitor/core": "^8.5.3",
     "concurrently": "^9.2.1",
     "rxjs": "~7.8.0",
