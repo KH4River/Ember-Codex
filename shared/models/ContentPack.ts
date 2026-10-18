@@ -1,18 +1,15 @@
 /**
- * The JSON types of a content pack.
- *
- * These mirror shared/db/migrations/001_initial.sql the way Character.ts does.
- * If you change one, change the other.
+ * The JSON types of a content pack. These mirror
+ * shared/db/migrations/001_initial.sql the way Character.ts does.
  *
  * Four things never appear in a pack file:
  *
- *   - `source_id`. Pack identity is `source.key`. Every reference names the
- *     referenced row's own identifier, never an integer foreign key.
+ *   - `source_id`. Pack identity is `source.key`.
  *   - `imported_at`. It records when *this user* imported the pack.
- *   - `xp_threshold`. No source_id, no slug, so a file has nothing to key on.
- *   - `damage_modifier`. Derived from its referrer and exported inline on it.
+ *   - `xp_threshold`. No source_id, no slug, so a file cannot key on it.
+ *   - `damage_modifier`. Derived from its referrer, exported inline on it.
  *
- * Field names are camelCase; shared/packs/mapping.ts maps them to columns.
+ * shared/packs/mapping.ts maps these names to columns.
  */
 
 // ---- Vocabulary, referenced by code rather than by key ----

@@ -24,13 +24,9 @@ import {
 } from './references';
 
 /**
- * Phases 1 and 2 of import validation, both entirely before BEGIN.
- *
- * A malformed or dangling file must leave the database untouched, and it must
- * say what is wrong rather than letting a later FOREIGN KEY constraint fail
- * with nothing in the message. Neither phase writes anything.
- *
- * Phase 1 stops at the first problem; phase 2 reports all of them.
+ * Phases 1 and 2 of import validation, both entirely before BEGIN, so a
+ * malformed file leaves the database untouched. Phase 1 stops at the first
+ * problem; phase 2 reports all of them.
  */
 
 /** Carries every problem found, so one error can list them all. */
@@ -90,11 +86,8 @@ function describeJsonValue(value: unknown): string {
 
 // ---- Phase 1: structure ----
 
-/**
- * Asserts the envelope and the shape of every collection, then returns the
- * file typed. Throws on the first problem: once `species` is known not to be
- * an array, every check below it would be reporting on nothing.
- */
+/** Throws on the first problem: once `species` is known not to be an array,
+ *  every check below it would be reporting on nothing. */
 export function validateStructure(input: unknown): PackFile {
   if (!isJsonObject(input)) {
     throw new PackValidationError([
@@ -155,12 +148,8 @@ function assertSourceBlock(source: unknown): void {
 
 // ---- Phase 2: references ----
 
-/**
- * One reference found in the file, with enough context to name it in an error.
- *
- * `kind` decides how it is resolved: a pack reference may live in this pack or
- * in another, a vocabulary value may only be the global row.
- */
+/** `kind` decides how it resolves: a pack reference may live in this pack or
+ *  another, a vocabulary value may only be the global row. */
 interface ReferenceSite {
   kind: 'pack' | 'vocabulary';
   /** The table being referenced, e.g. 'spell' or 'damage_type'. */
@@ -507,12 +496,9 @@ const PACK_EXTENSIBLE_VOCABULARY = [
 
 type ExtendableCollection = 'skills' | 'tools' | 'languages' | 'conditions';
 
-/**
- * A pack may add vocabulary, but may not redefine a slug that already exists
- * as global. On `condition` that is what stops two packs producing two
- * "Poisoned" rows. A CHECK cannot express it: it compares the incoming file
- * against rows that already exist.
- */
+/** A pack may add vocabulary, but not redefine a global slug. On `condition`
+ *  that is what stops two packs producing two "Poisoned" rows. A CHECK cannot
+ *  express it: it compares the file against rows that already exist. */
 async function findRedefinedGlobalVocabulary(
   port: DatabasePort,
   file: PackFile,
@@ -535,11 +521,8 @@ async function findRedefinedGlobalVocabulary(
   return problems;
 }
 
-/**
- * Resolves every reference and returns one message per failure. An unseeded
- * vocabulary table is reported apart from an unknown value: the first means
- * missing seed data, the second means a bad pack.
- */
+/** An unseeded vocabulary table is reported apart from an unknown value: the
+ *  first means missing seed data, the second means a bad pack. */
 export async function validateReferences(
   port: DatabasePort,
   file: PackFile,

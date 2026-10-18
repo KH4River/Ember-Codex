@@ -1,13 +1,10 @@
 import type { DatabasePort } from '../db/DatabasePort';
 
 /**
- * How a pack file names another row, and how that name becomes an id.
- *
  *   "skyriding"              this pack's own row, else a global one
  *   "srd-5.2.1/fireball"     that named pack's row
  *
- * The validator, the importer and the exporter all resolve through here, so
- * the rule is written once rather than three times.
+ * The validator, importer and exporter all resolve through here.
  */
 
 /** Tables a pack file may name by `key`. The name is interpolated into SQL, so
@@ -52,11 +49,8 @@ export interface ParsedReference {
   key: string;
 }
 
-/**
- * Why a reference did not resolve. The two are kept apart because the user
- * needs different messages: a misspelled key in this pack is one problem, and
- * a pack that was never imported is another.
- */
+/** Why a reference did not resolve. They need different messages: a misspelled
+ *  key in this pack is one problem, a pack never imported is another. */
 export type UnresolvedReason = 'no-such-key' | 'no-such-pack';
 
 export type Resolution =
