@@ -1,29 +1,18 @@
 /**
  * The JSON types of a content pack.
  *
- * A pack is a file someone shares. Importing writes it into the database as
- * rows; exporting reads those rows back as this shape. The round trip is the
- * product, so the format is pinned by a spec rather than by whoever reads
- * the file first.
+ * These mirror shared/db/migrations/001_initial.sql the way Character.ts does.
+ * If you change one, change the other.
  *
- * These types mirror shared/db/migrations/001_initial.sql, the same way
- * Character.ts mirrors it. If you change one, change the other -- and expect
- * shared/packs/mapping.ts to change with both.
+ * Four things never appear in a pack file:
  *
- * Four things never appear in a pack file, and their absence is deliberate:
+ *   - `source_id`. Pack identity is `source.key`. Every reference names the
+ *     referenced row's own identifier, never an integer foreign key.
+ *   - `imported_at`. It records when *this user* imported the pack.
+ *   - `xp_threshold`. No source_id, no slug, so a file has nothing to key on.
+ *   - `damage_modifier`. Derived from its referrer and exported inline on it.
  *
- *   - `source_id`. Pack identity is `source.key`, and the importer resolves
- *     it to a row id. No integer foreign key ever crosses the file; every
- *     reference names the referenced row's own stable identifier instead.
- *   - `imported_at`. It records when *this user* imported the pack, so
- *     exporting it would let a sender overwrite the recipient's date.
- *   - `xp_threshold`. No source_id, no slug, primary key is the level, so
- *     there is nothing for a file to key on. It stays invisible here.
- *   - `damage_modifier`. Derived from its referrer's damage type and
- *     relation, exported inline on that referrer and never as an entity.
- *
- * Field names are camelCase; the mapping to the snake_case columns is
- * declared once in shared/packs/mapping.ts and used by both directions.
+ * Field names are camelCase; shared/packs/mapping.ts maps them to columns.
  */
 
 // ---- Vocabulary, referenced by code rather than by key ----
@@ -34,10 +23,8 @@ export type AbilityCode = 'STR' | 'DEX' | 'CON' | 'INT' | 'WIS' | 'CHA';
 /** `feat_category.code`. */
 export type FeatCategory = 'origin' | 'general' | 'fighting_style' | 'epic_boon';
 
-/** `class_grant_kind.code`. Adding a fifth mechanic is a seed INSERT, not a
- *  schema change, so a pack may legitimately use a value this type does not
- *  list -- which is why the file is validated against the table rather than
- *  against this union. See §3.2 of the plan. */
+/** `class_grant_kind.code`. A fifth mechanic is a seed INSERT, not a schema
+ *  change, so a pack may use a value this union does not list. */
 export type KnownGrantKind =
   | 'asi_or_feat'
   | 'epic_boon'
@@ -47,7 +34,7 @@ export type KnownGrantKind =
 /** `class.casting_progression`. */
 export type CastingProgression = 'none' | 'full' | 'half' | 'pact';
 
-/** `roll_scope.code`. A scope may name an ability, as `save:DEX` does. */
+/** `roll_scope.code`. */
 export type RollScope =
   | 'initiative'
   | 'ability_check'
@@ -83,14 +70,8 @@ export type RollModifierKind =
 export type SpellDamageSelection = 'fixed' | 'choice';
 export type SpellDamageDelivery = 'cast' | 'aura' | 'other';
 
-/**
- * A reference to another row in the same file.
- *
- * `skyriding` means "this pack's own row, else a global one".
- * `srd-5.2.1/fireball` means that named pack. Both forms are resolved by
- * shared/packs/references.ts, which the validator, the importer and the
- * exporter must all go through.
- */
+/** A reference to another row: `skyriding` is this pack's own row, else a
+ *  global one; `srd-5.2.1/fireball` is that named pack. */
 export type Ref = string;
 
 // ---- The envelope ----
@@ -142,7 +123,6 @@ export interface PackSkill {
 export interface PackTool {
   key: string;
   name: string;
-  /** JSON booleans; converted to 0/1 on write. */
   isArtisan: boolean;
 }
 
@@ -190,8 +170,7 @@ export interface PackBackground {
   key: string;
   name: string;
   description?: string;
-  /** Exactly three, per the app-level rule at §8 of the plan. No CHECK can
-   *  count rows in another table. */
+  /** Exactly three. App-enforced: a CHECK cannot count rows in another table. */
   abilities: AbilityCode[];
   originFeats?: Ref[];
   features?: PackFeature[];
@@ -243,8 +222,8 @@ export interface PackSpellSlot {
   slotCount: number;
 }
 
-/** `class_skill`. The object form exists so a junction can grow columns
- *  without changing every class and subclass in every existing pack file. */
+/** `class_skill`, as an object so a junction can grow columns later without
+ *  changing every pack file already written. */
 export interface PackSkillRef {
   skill: Ref;
 }
@@ -344,8 +323,7 @@ export interface PackAbilityModifier {
   setsToPersonalMax?: boolean;
 }
 
-/** Inline, not a standalone collection: `damage_modifier` is derived from
- *  this pair and has no identity of its own. */
+/** Inline, not a collection: `damage_modifier` is derived from this pair. */
 export interface PackDamageModifierRef {
   damageType: Ref;
   relation: DamageRelation;

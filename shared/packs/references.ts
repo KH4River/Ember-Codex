@@ -3,22 +3,15 @@ import type { DatabasePort } from '../db/DatabasePort';
 /**
  * How a pack file names another row, and how that name becomes an id.
  *
- * A reference is either a bare `key` or a qualified `source/key`:
- *
  *   "skyriding"              this pack's own row, else a global one
  *   "srd-5.2.1/fireball"     that named pack's row
  *
- * The fallback order is a decision, not a constraint, and it cannot tie: the
- * importer refuses a pack that defines a slug which already exists as global
- * vocabulary, so "own pack first, else global" always has one answer.
- *
- * THREE call sites depend on this file agreeing with itself -- the validator,
- * the importer and the exporter. That is why the rule lives here once instead
- * of being written out three times.
+ * The validator, the importer and the exporter all resolve through here, so
+ * the rule is written once rather than three times.
  */
 
-/** Tables a pack file may name by `key`. The table name is interpolated into
- *  SQL, so this is an allowlist rather than an open union. */
+/** Tables a pack file may name by `key`. The name is interpolated into SQL, so
+ *  this is an allowlist rather than an open union. */
 export const KEYED_TABLES = [
   'species',
   'species_variant',
@@ -38,6 +31,21 @@ export const KEYED_TABLES = [
 
 export type KeyedTable = (typeof KEYED_TABLES)[number];
 
+/** Closed vocabulary, named by `code` or `slug` and never pack-owned, so it
+ *  resolves against the global row only. */
+export const CLOSED_TABLES = {
+  ability: 'code',
+  feat_category: 'code',
+  roll_scope: 'code',
+  class_grant_kind: 'code',
+  weapon_category: 'code',
+  weapon_property: 'code',
+  mastery_property: 'code',
+  damage_type: 'slug',
+} as const;
+
+export type ClosedTable = keyof typeof CLOSED_TABLES;
+
 export interface ParsedReference {
   /** The named pack's slug, or null for a bare key. */
   source: string | null;
@@ -55,19 +63,14 @@ export type Resolution =
   | { found: true; id: number }
   | { found: false; reason: UnresolvedReason; source: string | null; key: string };
 
-/** Guards the type assertion above, because `KEYED_TABLES` is a runtime
- *  array and a caller passing any other string would reach the SQL. */
+/** Guards the union above: KEYED_TABLES is a runtime array, and any other
+ *  string would reach the SQL. */
 export function isKeyedTable(table: string): table is KeyedTable {
   return (KEYED_TABLES as readonly string[]).includes(table);
 }
 
-/**
- * Splits a reference into its two halves.
- *
- * A pack slug may contain dots and hyphens (`srd-5.2.1`), so the separator is
- * the first `/` and only one is allowed -- a key with a slash in it cannot be
- * expressed, and that is better caught here than silently mis-split.
- */
+/** Splits a reference into its two halves. A pack slug may contain dots and
+ *  hyphens, so the separator is the first `/` and only one is allowed. */
 export function parseReference(ref: unknown): ParsedReference {
   if (typeof ref !== 'string') {
     throw new TypeError(`a pack reference must be a string, got ${typeof ref}`);
@@ -88,15 +91,35 @@ export function parseReference(ref: unknown): ParsedReference {
   return { source, key };
 }
 
-/**
- * Resolves one reference to a row id.
- *
- * A bare key looks in the importing pack first and then at global vocabulary,
- * because that is the order the format promises. A qualified key looks only
- * in the pack it names -- it is an explicit statement about where the row
- * lives, and quietly falling back would make a typo resolve to something the
- * author did not write.
- */
+/** How many rows a vocabulary table has, to tell "not seeded" apart from
+ *  "not a value this build knows". */
+export async function vocabularySize(port: DatabasePort, table: ClosedTable): Promise<number> {
+  const row = await port.get<{ n: number }>(`SELECT COUNT(*) AS n FROM "${table}"`);
+  return row?.n ?? 0;
+}
+
+/** Resolves one closed-vocabulary value. No pack scoping and no fallback: these
+ *  tables are seeded, so there is one row or none. */
+export async function resolveCode(
+  port: DatabasePort,
+  table: ClosedTable,
+  value: unknown,
+): Promise<Resolution> {
+  if (typeof value !== 'string') {
+    throw new TypeError(`a ${table} value must be a string, got ${typeof value}`);
+  }
+  const column = CLOSED_TABLES[table];
+  const row = await port.get<{ id: number }>(
+    `SELECT id FROM "${table}" WHERE ${column} = ?`,
+    [value],
+  );
+  if (row) return { found: true, id: row.id };
+  return { found: false, reason: 'no-such-key', source: null, key: value };
+}
+
+/** Resolves one reference to a row id. A bare key looks in the importing pack
+ *  first, then at global vocabulary. A qualified key looks only in the pack it
+ *  names, so a typo cannot quietly resolve to a row the author did not mean. */
 export async function resolveReference(
   port: DatabasePort,
   table: KeyedTable,
@@ -117,7 +140,8 @@ export async function resolveReference(
       `SELECT id FROM "${table}" WHERE source_id = ? AND slug = ?`,
       [pack.id, key],
     );
-    return row ? { found: true, id: row.id } : { found: false, reason: 'no-such-key', source, key };
+    if (row) return { found: true, id: row.id };
+    return { found: false, reason: 'no-such-key', source, key };
   }
 
   const own = await port.get<{ id: number }>(
@@ -130,5 +154,6 @@ export async function resolveReference(
     `SELECT id FROM "${table}" WHERE source_id IS NULL AND slug = ?`,
     [key],
   );
-  return global ? { found: true, id: global.id } : { found: false, reason: 'no-such-key', source: null, key };
+  if (global) return { found: true, id: global.id };
+  return { found: false, reason: 'no-such-key', source: null, key };
 }
