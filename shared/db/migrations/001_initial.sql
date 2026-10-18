@@ -19,6 +19,12 @@
 --     stable identifier used by import/export files ("key" in JSON).
 --     Column is not called "key": KEY is reserved in MySQL and a keyword
 --     in SQLite.
+--   * Fixed vocabulary -- ability, damage_type, feat_category, roll_scope,
+--     weapon_property, weapon_category, mastery_property, class_grant_kind
+--     -- is seeded, globally unique, and carries NO source_id. skill, tool,
+--     language and condition are the exception: they are open-ended, so
+--     source_id is nullable there and NULL means global. A pack may add its
+--     own but may not redefine a global slug, and the importer refuses that.
 --   * DELETE POLICY, in two tiers. The distinction matters, because the
 --     obvious "ON DELETE CASCADE everywhere" is actively dangerous here:
 --     species cascades to player_character, so deleting an imported
@@ -52,6 +58,14 @@ CREATE TABLE source (
   slug        TEXT    NOT NULL UNIQUE,              -- 'srd-5.2.1', 'my-homebrew'
   name        TEXT    NOT NULL,
   version     TEXT    NOT NULL,
+  -- Which pack replaces this one, when the user chose to keep both rather
+  -- than replace in place. NULL on an active pack. ON DELETE SET NULL, not
+  -- the tier-1 CASCADE: this is a pointer to a successor, not an ownership
+  -- edge. Deleting v2 should un-mark v1, not take v1 with it. The two-tier
+  -- policy in the header governs who a row BELONGS to; "what replaced this"
+  -- belongs to neither row. It also chains v1 -> v2 -> v3 with no extra
+  -- state, which a status TEXT column could not.
+  superseded_by INTEGER REFERENCES source (id) ON DELETE SET NULL,
   -- Licence and attribution for reproduced third-party content. A NULL
   -- licence means original content the user owns -- which is what their own
   -- homebrew is -- and needs no external credit. The SRD is CC-BY-4.0, which
@@ -601,14 +615,31 @@ CREATE TABLE spell_effect (
   PRIMARY KEY (spell_id, effect_id)
 ) STRICT;
 
--- Standard conditions: Frightened, Grappled, Prone, Poisoned, ... seeded
--- below, never imported, so no source_id and a globally unique slug.
+-- The fifteen standard conditions (Frightened, Grappled, Prone, Poisoned, ...)
+-- are seeded below with source_id NULL, which is what makes them global.
+--
+-- A pack may ADD its own -- a bespoke "marked" -- and may not REDEFINE a
+-- global one. That distinction is the point of the nullable column. Without
+-- it, importing two overlapping packs gives you two "Poisoned" conditions
+-- and a poisoned character stops being poisoned. The importer refuses a pack
+-- that defines a slug which already exists globally; see shared/packs.
 CREATE TABLE condition (
   id          INTEGER PRIMARY KEY,
-  slug        TEXT    NOT NULL UNIQUE,
+  -- NULL = global vocabulary shipped with the app. Set = pack-owned.
+  source_id   INTEGER REFERENCES source (id) ON DELETE CASCADE,
+  slug        TEXT    NOT NULL,
   name        TEXT    NOT NULL,
-  description TEXT
+  description TEXT,
+  UNIQUE (source_id, slug)
 ) STRICT;
+
+-- REQUIRED, not an optimisation. SQLite treats NULLs as distinct in a UNIQUE
+-- constraint, so UNIQUE (source_id, slug) on its own would happily hold two
+-- global rows sharing a slug. This index restores global uniqueness for the
+-- NULL case only. Cross-pack duplicates stay legal on purpose: two packs may
+-- each define "marked", and a bare key never resolves outside the pack it
+-- appears in.
+CREATE UNIQUE INDEX condition_global_slug ON condition (slug) WHERE source_id IS NULL;
 
 -- ---------------------------------------------------------------------
 -- 7c. CAPABILITY GRANTS
@@ -632,9 +663,13 @@ CREATE TABLE effect_weapon_property (
 
 CREATE TABLE language (
   id   INTEGER PRIMARY KEY,
-  slug TEXT NOT NULL UNIQUE,
-  name TEXT NOT NULL
+  source_id INTEGER REFERENCES source (id) ON DELETE CASCADE,
+  slug TEXT NOT NULL,
+  name TEXT NOT NULL,
+  UNIQUE (source_id, slug)
 ) STRICT;
+
+CREATE UNIQUE INDEX language_global_slug ON language (slug) WHERE source_id IS NULL;
 
 CREATE TABLE effect_language (
   effect_id   INTEGER NOT NULL REFERENCES effect (id) ON DELETE CASCADE,
@@ -667,10 +702,12 @@ CREATE TABLE effect_size (
 -- ---------------------------------------------------------------------
 -- 7b. DAMAGE TYPES AND RELATIONS
 --
--- Thirteen types, fixed vocabulary like ability and condition, so seeded
--- and globally unique with no source_id. Without that, importing two
--- overlapping packs gives you two "fire" rows and silently splits every
--- resistance lookup.
+-- Thirteen types, fixed vocabulary like ability, so seeded and globally
+-- unique with no source_id. Without that, importing two overlapping packs
+-- gives you two "fire" rows and silently splits every resistance lookup.
+-- Unlike skill, tool, language and condition, this table stays closed: a
+-- damage type is a rules-bearing join key, so a second "fire" corrupts a
+-- lookup rather than duplicating a preference.
 -- ---------------------------------------------------------------------
 
 CREATE TABLE damage_type (
@@ -719,17 +756,35 @@ CREATE TABLE spell_damage_modifier (
 -- knowing which features a character has, and features are granted
 -- implicitly by species + variant + class level rather than owned as rows
 -- -- a Bear Totem Barbarian's resistance is gated on a class level, not a
--- row the character holds. So the user owns this list, and source_kind
--- records where an entry came from. Both provenance columns are nullable
--- because a player may enter a resistance by hand.
+-- row the character holds. So the user owns this list, and the four
+-- provenance columns below record which content granted an entry.
 CREATE TABLE character_damage_modifier (
   character_id   INTEGER NOT NULL REFERENCES player_character (id) ON DELETE CASCADE,
   damage_type_id INTEGER NOT NULL REFERENCES damage_type (id) ON DELETE CASCADE,
   relation       TEXT    NOT NULL CHECK (relation IN ('resistant', 'immune', 'vulnerable')),
-  source_kind    TEXT    CHECK (source_kind IN ('species', 'variant', 'feature', 'item')),
-  source_ref     INTEGER,
+  -- Provenance. Four nullable columns with a one-of CHECK rather than the
+  -- source_kind + source_ref pair this table used to carry, because a
+  -- polymorphic pair cannot be a foreign key and so can be neither enforced,
+  -- cascaded nor checked. It was worse than dangling: no table here uses
+  -- AUTOINCREMENT, so SQLite reissues a freed id to the next insert, and a
+  -- stale source_ref could point at a different, unrelated feature that
+  -- inherited the number.
+  --
+  -- ON DELETE RESTRICT throughout, per the tier-2 policy above. Content must
+  -- never silently delete player data, and a provenance pointer that quietly
+  -- went NULL would hide the removal rather than surface it.
+  species_id  INTEGER REFERENCES species (id)         ON DELETE RESTRICT,
+  variant_id  INTEGER REFERENCES species_variant (id) ON DELETE RESTRICT,
+  feature_id  INTEGER REFERENCES feature (id)         ON DELETE RESTRICT,
+  item_id     INTEGER REFERENCES item (id)            ON DELETE RESTRICT,
   conditions_note TEXT,
-  PRIMARY KEY (character_id, damage_type_id, relation)
+  PRIMARY KEY (character_id, damage_type_id, relation),
+  -- At most one, not exactly one: a player may enter a resistance by hand,
+  -- and then there is no content that granted it. Summed as IS NOT NULL
+  -- rather than negated for the same reason character_grant_pick sums rather
+  -- than negates.
+  CHECK ((species_id IS NOT NULL) + (variant_id IS NOT NULL)
+       + (feature_id IS NOT NULL) + (item_id    IS NOT NULL) <= 1)
 ) STRICT;
 
 
@@ -743,17 +798,26 @@ CREATE TABLE character_damage_modifier (
 
 CREATE TABLE skill (
   id         INTEGER PRIMARY KEY,
-  slug       TEXT    NOT NULL UNIQUE,
+  -- NULL = global vocabulary shipped with the app. Set = pack-owned.
+  source_id  INTEGER REFERENCES source (id) ON DELETE CASCADE,
+  slug       TEXT    NOT NULL,
   name       TEXT    NOT NULL,
-  ability_id INTEGER NOT NULL REFERENCES ability (id)
+  ability_id INTEGER NOT NULL REFERENCES ability (id),
+  UNIQUE (source_id, slug)
 ) STRICT;
+
+CREATE UNIQUE INDEX skill_global_slug ON skill (slug) WHERE source_id IS NULL;
 
 CREATE TABLE tool (
   id         INTEGER PRIMARY KEY,
-  slug       TEXT    NOT NULL UNIQUE,
+  source_id  INTEGER REFERENCES source (id) ON DELETE CASCADE,
+  slug       TEXT    NOT NULL,
   name       TEXT    NOT NULL,
-  is_artisan INTEGER NOT NULL DEFAULT 0 CHECK (is_artisan IN (0, 1))
+  is_artisan INTEGER NOT NULL DEFAULT 0 CHECK (is_artisan IN (0, 1)),
+  UNIQUE (source_id, slug)
 ) STRICT;
+
+CREATE UNIQUE INDEX tool_global_slug ON tool (slug) WHERE source_id IS NULL;
 
 -- D&D Beyond lists saving throws per class ("Saves: Strength &
 -- Constitution"). Without this the multiclass prerequisite check in
@@ -1118,7 +1182,13 @@ CREATE TABLE character_cantrip (
 -- by severity, not by a second row.
 CREATE TABLE character_condition (
   character_id INTEGER NOT NULL REFERENCES player_character (id) ON DELETE CASCADE,
-  condition_id INTEGER NOT NULL REFERENCES condition (id) ON DELETE CASCADE,
+  -- RESTRICT, not CASCADE. While conditions were global this was
+  -- unreachable for pack content; a pack may now own one, and a cascade
+  -- would strip the condition off every character that had it with no
+  -- report. RESTRICT matches character_skill and character_tool, which
+  -- declare no clause at all (NO ACTION), so skill, tool and condition now
+  -- behave alike -- loudly rather than silently.
+  condition_id INTEGER NOT NULL REFERENCES condition (id) ON DELETE RESTRICT,
   remaining_rounds INTEGER CHECK (remaining_rounds IS NULL OR remaining_rounds >= 0),  -- NULL = until removed
   severity   INTEGER NOT NULL DEFAULT 1 CHECK (severity BETWEEN 1 AND 6),  -- 1-6 for Exhaustion
   PRIMARY KEY (character_id, condition_id)
@@ -1168,7 +1238,10 @@ CREATE TABLE character_epic_boon (
 
 CREATE TABLE character_effect_uses (
   character_id INTEGER NOT NULL REFERENCES player_character (id) ON DELETE CASCADE,
-  effect_id    INTEGER NOT NULL REFERENCES effect (id) ON DELETE CASCADE,
+  -- RESTRICT, not CASCADE. A cascade here discarded a character's
+  -- uses_spent and rest-generation counters when the effect's pack was
+  -- removed: the character survived, their spends silently reset to full.
+  effect_id    INTEGER NOT NULL REFERENCES effect (id) ON DELETE RESTRICT,
   uses_spent   INTEGER NOT NULL DEFAULT 0 CHECK (uses_spent >= 0),
   short_rest_generation INTEGER NOT NULL DEFAULT 0,
   long_rest_generation  INTEGER NOT NULL DEFAULT 0,

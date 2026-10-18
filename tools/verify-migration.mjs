@@ -335,9 +335,9 @@ else fail('conditions_note not stored');
 
 // Character resistances are stored, and a hand-entered one needs no source.
 ins(`INSERT INTO character_damage_modifier (character_id, damage_type_id, relation) VALUES (?, ?, 'resistant')`, pc, poison);
-const hand = db.prepare('SELECT source_kind FROM character_damage_modifier WHERE character_id = ?').get(pc);
-if (hand.source_kind === null) ok('hand-entered resistance accepted with no source');
-else fail('hand-entered resistance required a source');
+const hand = db.prepare('SELECT feature_id FROM character_damage_modifier WHERE character_id = ?').get(pc);
+if (hand.feature_id === null) ok('hand-entered resistance accepted with no provenance owner');
+else fail('hand-entered resistance required a provenance owner');
 expectFail('duplicate resistance for the same type rejected', () =>
   ins(`INSERT INTO character_damage_modifier (character_id, damage_type_id, relation) VALUES (?, ?, 'resistant')`, pc, poison));
 
