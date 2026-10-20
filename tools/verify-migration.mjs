@@ -50,6 +50,10 @@ if (!hashLine) {
 // docs/schema/schema.dbml is generated, and a stale diagram is worse than no
 // diagram: it is the thing a reader trusts about the delete policy. Same drift
 // the generated TS above has, so it gets the same check over the same digest.
+// Beyond presence, the diagram is checked below for operator correctness: a
+// one-to-one ('-') on columns that are not a unique key, or a mandatory
+// operator on a nullable FK, is exactly the inconsistency dbdiagram warns
+// about, and a stale diagram would keep drawing it as true.
 //
 // This sits after the FK walk because it is a cross-check against what the
 // pragmas just said, not against the file it is checking.
@@ -169,6 +173,56 @@ for (const [what, got, want] of [
 const repeated = dbmlTables.filter((t, i) => dbmlTables.indexOf(t) !== i);
 if (repeated.length === 0) ok('schema.dbml names every table exactly once');
 else fail(`schema.dbml repeats: ${[...new Set(repeated)].join(', ')}`);
+
+// ---- Every Ref: operator must agree with the schema's own facts ----
+// dbdiagram warns whenever an operator contradicts the columns it joins: a
+// one-to-one ('-') on a column set that is not a unique key, or a mandatory
+// operator on a nullable FK. The generator derives the operator from these
+// same pragmas, so this check re-derives it independently rather than
+// importing the generator's helper: two implementations forced to agree are
+// worth more than one used twice, the same reasoning as the CHECK scan above.
+const refOps = new Map([
+  ['-', { key: true, notNull: true }],
+  ['-?', { key: true, notNull: false }],
+  ['>', { key: false, notNull: true }],
+  ['>?', { key: false, notNull: false }],
+]);
+let checkedRefs = 0;
+for (const [, child, fromRaw, op] of diagram.matchAll(/^Ref: (\w+)\.(\([\w, ()]+\)|\w+) (\S+) /gm)) {
+  checkedRefs++;
+  const want = refOps.get(op);
+  if (!want) {
+    fail(`schema.dbml ref ${child}.${fromRaw} has unknown operator '${op}'`);
+    continue;
+  }
+  const childCols = fromRaw.replace(/^\(|\)$/g, '').split(',').map((s) => s.trim());
+  const info = db.prepare(`PRAGMA table_info('${child}')`).all();
+  const pkCols = info.filter((c) => c.pk > 0).sort((a, b) => a.pk - b.pk).map((c) => c.name);
+  const uniqueSets = [pkCols.join(',')];
+  for (const idx of db.prepare(`PRAGMA index_list('${child}')`).all()) {
+    if (!idx.unique) continue;
+    // A partial index constrains only its matching rows, so it makes nothing
+    // a key of the whole table.
+    const indexSql = db.prepare(`SELECT sql FROM sqlite_master WHERE type='index' AND name=?`).get(idx.name)?.sql ?? '';
+    if (/\bwhere\b/i.test(indexSql)) continue;
+    uniqueSets.push(
+      db.prepare(`PRAGMA index_info('${idx.name}')`).all().sort((a, b) => a.seqno - b.seqno).map((c) => c.name).join(','),
+    );
+  }
+  const isKey = uniqueSets.includes(childCols.join(','));
+  // The rowid-alias rule again, written out: a single-column INTEGER PRIMARY
+  // KEY reports notnull 0 whatever the declaration says.
+  const allNotNull = childCols.every((name) => {
+    const c = info.find((x) => x.name === name);
+    return c.notnull || (c.pk > 0 && pkCols.length === 1);
+  });
+  if (isKey !== want.key || allNotNull !== want.notNull) {
+    fail(`schema.dbml ref ${child}.${fromRaw} uses '${op}' but the schema says key=${isKey} notNull=${allNotNull}`);
+  }
+}
+if (checkedRefs === (diagram.match(/^Ref: /gm) ?? []).length && checkedRefs > 0) {
+  ok(`all ${checkedRefs} Ref: operators agree with the schema's cardinality and nullability`);
+}
 
 // ---- Behavioural checks against real 2024 rules ----
 const ins = (s, ...p) => db.prepare(s).run(...p);
