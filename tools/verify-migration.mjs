@@ -46,6 +46,25 @@ if (!hashLine) {
   ok('migrations.generated.ts matches shared/db/migrations/*.sql');
 }
 
+// ---- The committed diagram must describe the schema that exists ----
+// docs/schema/schema.dbml is generated, and a stale diagram is worse than no
+// diagram: it is the thing a reader trusts about the delete policy. Same drift
+// the generated TS above has, so it gets the same check over the same digest.
+//
+// This sits after the FK walk because it is a cross-check against what the
+// pragmas just said, not against the file it is checking.
+const diagram = readFileSync(new URL('../docs/schema/schema.dbml', import.meta.url), 'utf8');
+const diagramHash = /^\/\/ source-hash: ([0-9a-f]{64})$/m.exec(diagram);
+if (!diagramHash) {
+  fail('schema.dbml has no source-hash header');
+} else if (diagramHash[1] !== sourceDigest(sources)) {
+  fail('schema.dbml is stale; run `node tools/generate-schema-diagram.mjs`');
+} else {
+  ok('schema.dbml matches shared/db/migrations/*.sql');
+}
+
+
+
 // The runtime runner treats user_version as the applied COUNT, so each file's
 // trailing PRAGMA user_version must equal its ordinal (001 -> 1). If that ever
 // breaks, the runner would skip or replay migrations.
@@ -89,9 +108,14 @@ const cols = new Map(
 );
 let bad = 0;
 let fkCount = 0;
+// foreign_key_list is one row per column, so a composite key arrives as several
+// rows sharing an `id`. The diagram draws one relationship per constraint, so it
+// is counted separately -- 153 relationships over 159 columns here.
+const fkConstraints = new Set();
 for (const t of tables) {
   for (const fk of db.prepare(`PRAGMA foreign_key_list('${t.name}')`).all()) {
     fkCount++;
+    fkConstraints.add(`${t.name}#${fk.id}`);
     if (!cols.has(fk.table)) {
       fail(`FK target table missing: ${fk.table} (from ${t})`);
       bad++;
@@ -102,6 +126,49 @@ for (const t of tables) {
   }
 }
 if (bad === 0) ok(`all ${fkCount} foreign keys resolve to a real table and column`);
+
+// The digest above proves the file was generated from the schema that exists.
+// It does not prove the generator wrote all of it: a truncated emit still
+// matches its own header. Count what the schema says must be there against what
+// the file has, now that the FK walk above has counted the keys.
+//
+// CHECK bodies are counted by a scan written here rather than shared with the
+// generator, on purpose. A digest has to be the same algorithm in both places or
+// the comparison means nothing; this is an independent re-derivation, which is
+// the value of checking. It balances parentheses because a body can nest --
+// length(attribution) > 0 -- and steps over quoted literals so a paren inside a
+// string cannot end the scan early.
+let checksInDdl = 0;
+for (const { sql: ddlText } of db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND sql IS NOT NULL").all()) {
+  for (const m of ddlText.matchAll(/check\s*\(/gi)) {
+    let depth = 0;
+    let j = m.index + m[0].length - 1;
+    for (; j < ddlText.length; j++) {
+      const c = ddlText[j];
+      if (c === "'") {
+        while (++j < ddlText.length && ddlText[j] !== "'") if (ddlText[j] === "'" && ddlText[j + 1] === "'") j++;
+        continue;
+      }
+      if (c === '(') depth++;
+      else if (c === ')' && --depth === 0) break;
+    }
+    if (ddlText.slice(m.index + m[0].length, j).trim()) checksInDdl++;
+  }
+}
+
+const dbmlTables = [...diagram.matchAll(/^Table (\w+) \{$/gm)].map((m) => m[1]);
+for (const [what, got, want] of [
+  ['tables', dbmlTables.length, tables.length],
+  ['foreign keys', (diagram.match(/^Ref: /gm) ?? []).length, fkConstraints.size],
+  ['checks', (diagram.match(/^ {4}`/gm) ?? []).length, checksInDdl],
+]) {
+  if (got === want) ok(`schema.dbml has all ${want} ${what}`);
+  else fail(`schema.dbml has ${got} ${what}, expected ${want}`);
+}
+// Counts can still add up with a name wrong in two places, so check uniqueness.
+const repeated = dbmlTables.filter((t, i) => dbmlTables.indexOf(t) !== i);
+if (repeated.length === 0) ok('schema.dbml names every table exactly once');
+else fail(`schema.dbml repeats: ${[...new Set(repeated)].join(', ')}`);
 
 // ---- Behavioural checks against real 2024 rules ----
 const ins = (s, ...p) => db.prepare(s).run(...p);
