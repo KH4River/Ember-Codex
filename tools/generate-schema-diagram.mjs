@@ -13,13 +13,13 @@
 // the text rather than a second parse of the file, and it means a CHECK the
 // engine rejected at CREATE time cannot appear here.
 //
-// Why DBML rather than Mermaid: this schema has 51 composite primary keys, 65
-// composite unique indexes and 107 CHECK constraints. Mermaid's erDiagram has no
-// syntax for any of the three -- composite keys flatten into a PK per column,
-// composite uniques are dropped, and CHECK is not expressible -- so a Mermaid
-// diagram of this schema misstates most of what the schema constrains. DBML
-// carries all of them, plus [delete: ...] for the two-tier delete policy that
-// .opencode/rules-reference.md is about.
+// Why DBML rather than Mermaid: this schema has 51 composite primary keys, 63
+// composite unique indexes and 106 CHECK constraints. Mermaid's erDiagram has
+// no syntax for any of the three -- composite keys flatten into a PK per
+// column, composite uniques are dropped, and CHECK is not expressible -- so a
+// Mermaid diagram of this schema misstates most of what the schema constrains.
+// DBML carries all of them, plus [delete: ...] for the two-tier delete policy
+// that .opencode/rules-reference.md is about.
 //
 // The Ref operator carries the two facts the column settings carry, because
 // dbdiagram warns on any operator the columns contradict: a unique child key
@@ -155,7 +155,7 @@ function checksOf(table) {
   return found;
 }
 
-/** Six of the 107 CHECK bodies span lines; DBML wants one line per expression. */
+/** Some CHECK bodies span lines; DBML wants one line per expression. */
 function oneLine(expr) {
   let out = '';
   let literal = false;
