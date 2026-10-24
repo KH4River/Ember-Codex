@@ -80,6 +80,82 @@ describe('database bridge', () => {
 });
 
 /**
+ * Milestone levelling: experience_points IS NULL is the mode, so there is no
+ * second flag to keep in sync. These cases lock the encoding — re-adding a
+ * leveling_type column, or a NOT NULL xp column, breaks here.
+ */
+describe('milestone levelling encoding', () => {
+  let port: NodeSqlitePort;
+  let charId: number;
+  let featId: number;
+
+  beforeEach(async () => {
+    port = new NodeSqlitePort();
+    await port.open();
+    await runMigrations(port, MIGRATIONS);
+
+    await port.run(`INSERT INTO source (slug, name, version) VALUES ('test', 'Test', '1.0')`);
+    const src = (await port.get<{ id: number }>('SELECT id FROM source'))!.id;
+    await port.run(`INSERT INTO species (source_id, slug, name, size, speed) VALUES (?, 'elf', 'Elf', 'medium', 30)`, [src]);
+    const species = (await port.get<{ id: number }>(`SELECT id FROM species WHERE slug = 'elf'`))!.id;
+    await port.run(`INSERT INTO background (source_id, slug, name) VALUES (?, 'wayfarer', 'Wayfarer')`, [src]);
+    const bg = (await port.get<{ id: number }>(`SELECT id FROM background WHERE slug = 'wayfarer'`))!.id;
+    await port.run(
+      `INSERT INTO feat (source_id, slug, name, description, category_id) VALUES (?, 'alert', 'Alert', 'x', 2)`,
+      [src],
+    );
+    featId = (await port.get<{ id: number }>(`SELECT id FROM feat WHERE slug = 'alert'`))!.id;
+
+    const uuid = 'b'.repeat(8) + '-1111-1111-1111-' + 'b'.repeat(12);
+    await port.run(
+      `INSERT INTO player_character (uuid, name, species_id, background_id, hp_max, hp_current)
+       VALUES (?, 'Milestone', ?, ?, 10, 10)`,
+      [uuid, species, bg],
+    );
+    charId = (await port.get<{ id: number }>('SELECT id FROM player_character'))!.id;
+  });
+
+  afterEach(async () => {
+    await port.close();
+  });
+
+  it('omitting experience_points keeps the xp-mode default of 0', async () => {
+    const row = await port.get<{ experience_points: number }>(
+      'SELECT experience_points FROM player_character WHERE id = ?',
+      [charId],
+    );
+    expect(row?.experience_points).toBe(0);
+  });
+
+  it('accepts NULL experience_points (milestone)', async () => {
+    await port.run('UPDATE player_character SET experience_points = NULL WHERE id = ?', [charId]);
+    const row = await port.get<{ experience_points: number | null }>(
+      'SELECT experience_points FROM player_character WHERE id = ?',
+      [charId],
+    );
+    expect(row?.experience_points).toBeNull();
+  });
+
+  it('still rejects a negative XP total', async () => {
+    await expect(port.run('UPDATE player_character SET experience_points = -1 WHERE id = ?', [charId])).rejects.toThrow();
+  });
+
+  it('has no leveling_type column left to drift out of sync', async () => {
+    const cols = await port.all<{ name: string }>('PRAGMA table_info(character_rule_preference)');
+    expect(cols.map((c) => c.name)).not.toContain('leveling_type');
+    // The remaining preferences still insert without the dropped column.
+    await port.run('INSERT INTO character_rule_preference (character_id) VALUES (?)', [charId]);
+  });
+
+  it('accepts a NULL epic-boon threshold (no XP gate)', async () => {
+    await port.run(
+      'INSERT INTO character_epic_boon (character_id, feat_id, threshold_xp) VALUES (?, ?, NULL)',
+      [charId, featId],
+    );
+  });
+});
+
+/**
  * How @capacitor-community/sqlite turns a migration into statements on Android.
  * The real code is UtilsSQLite.getStatementsArray, and the four steps below are
  * all of it that this schema can trip over. Modelling it here means a migration

@@ -18,7 +18,12 @@ export interface CharacterBaseData {
 }
 
 export interface CharacterCreationRules {
-  /** Milestone levelling predates XP tables; both exist in 2024. */
+  /**
+   * Milestone levelling predates XP tables; both exist in 2024, and a
+   * character is one or the other, never both. Stored as
+   * player_character.experience_points: NULL means 'milestone', a number
+   * means 'xp' (default 0). There is no leveling_type column.
+   */
   levelingType: 'xp' | 'milestone';
 
   /**

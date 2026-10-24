@@ -814,8 +814,9 @@ CREATE TABLE subclass_armour_type (
   PRIMARY KEY (subclass_id, armour_type)
 ) STRICT;
 
--- XP thresholds per level, so levelingType = 'xp' can actually resolve what
--- level a character has earned. Only meaningful for xp levelling.
+-- XP thresholds per level, so xp levelling (experience_points IS NOT NULL)
+-- can resolve what level a character has earned. A milestone character has
+-- no XP to look up.
 CREATE TABLE xp_threshold (
   level       INTEGER PRIMARY KEY CHECK (level BETWEEN 1 AND 20),
   xp_required INTEGER NOT NULL CHECK (xp_required >= 0)
@@ -927,7 +928,11 @@ CREATE TABLE player_character (
   species_id        INTEGER NOT NULL REFERENCES species (id) ON DELETE RESTRICT,
   variant_id        INTEGER,
   background_id     INTEGER NOT NULL REFERENCES background (id) ON DELETE RESTRICT,
-  experience_points INTEGER NOT NULL DEFAULT 0 CHECK (experience_points >= 0),
+  -- NULL = milestone levelling: the DM decides when the character levels,
+  -- so there is no XP to track. A number = xp levelling; DEFAULT 0 matches
+  -- the app's default rules screen ('xp' at 0 XP). CHECK still rejects
+  -- negatives; NULL passes it.
+  experience_points INTEGER DEFAULT 0 CHECK (experience_points >= 0),
   -- 2024 allows HP to go NEGATIVE: 0 means dying, below 0 means an
   -- automatic failed death save. The old upper-only bound was wrong.
   hp_max            INTEGER NOT NULL CHECK (hp_max >= 1),
@@ -949,9 +954,10 @@ CREATE TABLE player_character (
 -- Housekeeping preferences. These were TypeScript-only, which meant they
 -- vanished the moment a character was saved. hp_roll_l1 is only used when
 -- hp_type = 'rolled'; 2024 has no averaging.
+-- Levelling mode is not here: it is player_character.experience_points IS
+-- NULL — one fact, one encoding.
 CREATE TABLE character_rule_preference (
   character_id               INTEGER PRIMARY KEY REFERENCES player_character (id) ON DELETE CASCADE,
-  leveling_type              TEXT NOT NULL DEFAULT 'xp'  CHECK (leveling_type IN ('xp', 'milestone')),
   hp_type                    TEXT NOT NULL DEFAULT 'fixed' CHECK (hp_type IN ('fixed', 'rolled')),
   hp_roll_l1                 INTEGER CHECK (hp_roll_l1 IS NULL OR hp_roll_l1 >= 1),
   ignore_coin_weight         INTEGER NOT NULL DEFAULT 1 CHECK (ignore_coin_weight IN (0, 1)),  -- 2024: coins weigh nothing
@@ -1141,11 +1147,12 @@ CREATE TABLE character_item (
 -- whether class progression continues or only feat picks do. The 30,000
 -- XP figure that circulates is the optional 2014 DMG "Bonus Feats at
 -- Level 20" rule, not 2024 core. threshold_xp stores whatever ruling
--- the table uses rather than assuming one.
+-- the table uses rather than assuming one, and NULL means no XP gate at
+-- all — milestone levelling, or a DM grant.
 CREATE TABLE character_epic_boon (
   character_id INTEGER NOT NULL REFERENCES player_character (id) ON DELETE CASCADE,
   feat_id      INTEGER NOT NULL REFERENCES feat (id) ON DELETE RESTRICT,
-  threshold_xp INTEGER NOT NULL CHECK (threshold_xp >= 0),
+  threshold_xp INTEGER CHECK (threshold_xp >= 0),
   PRIMARY KEY (character_id, feat_id)
 ) STRICT;
 
