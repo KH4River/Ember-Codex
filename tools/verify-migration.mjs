@@ -54,9 +54,6 @@ if (!hashLine) {
 // one-to-one ('-') on columns that are not a unique key, or a mandatory
 // operator on a nullable FK, is exactly the inconsistency dbdiagram warns
 // about, and a stale diagram would keep drawing it as true.
-//
-// This sits after the FK walk because it is a cross-check against what the
-// pragmas just said, not against the file it is checking.
 const diagram = readFileSync(new URL('../docs/schema/schema.dbml', import.meta.url), 'utf8');
 const diagramHash = /^\/\/ source-hash: ([0-9a-f]{64})$/m.exec(diagram);
 if (!diagramHash) {
@@ -66,8 +63,6 @@ if (!diagramHash) {
 } else {
   ok('schema.dbml matches shared/db/migrations/*.sql');
 }
-
-
 
 // The runtime runner treats user_version as the applied COUNT, so each file's
 // trailing PRAGMA user_version must equal its ordinal (001 -> 1). If that ever
@@ -114,7 +109,8 @@ let bad = 0;
 let fkCount = 0;
 // foreign_key_list is one row per column, so a composite key arrives as several
 // rows sharing an `id`. The diagram draws one relationship per constraint, so it
-// is counted separately -- 153 relationships over 159 columns here.
+// is counted separately -- the column total and the relationship total each
+// appear in the output below.
 const fkConstraints = new Set();
 for (const t of tables) {
   for (const fk of db.prepare(`PRAGMA foreign_key_list('${t.name}')`).all()) {
@@ -188,11 +184,16 @@ const refOps = new Map([
   ['>?', { key: false, notNull: false }],
 ]);
 let checkedRefs = 0;
+let badRefOps = 0;
+// The loop below must parse every line counting as a Ref, not just most of
+// them: an unparsed line fails nothing and would sit inside the ok count.
+const refLineCount = (diagram.match(/^Ref: /gm) ?? []).length;
 for (const [, child, fromRaw, op] of diagram.matchAll(/^Ref: (\w+)\.(\([\w, ()]+\)|\w+) (\S+) /gm)) {
   checkedRefs++;
   const want = refOps.get(op);
   if (!want) {
     fail(`schema.dbml ref ${child}.${fromRaw} has unknown operator '${op}'`);
+    badRefOps++;
     continue;
   }
   const childCols = fromRaw.replace(/^\(|\)$/g, '').split(',').map((s) => s.trim());
@@ -218,9 +219,10 @@ for (const [, child, fromRaw, op] of diagram.matchAll(/^Ref: (\w+)\.(\([\w, ()]+
   });
   if (isKey !== want.key || allNotNull !== want.notNull) {
     fail(`schema.dbml ref ${child}.${fromRaw} uses '${op}' but the schema says key=${isKey} notNull=${allNotNull}`);
+    badRefOps++;
   }
 }
-if (checkedRefs === (diagram.match(/^Ref: /gm) ?? []).length && checkedRefs > 0) {
+if (checkedRefs === refLineCount && checkedRefs > 0 && badRefOps === 0) {
   ok(`all ${checkedRefs} Ref: operators agree with the schema's cardinality and nullability`);
 }
 
