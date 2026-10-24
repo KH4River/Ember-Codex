@@ -153,7 +153,8 @@ export interface PackSpeciesVariant {
   name: string;
   variantKind: VariantKind;
   features?: PackFeature[];
-  grantedSpells?: PackGrantedSpell[];
+  /** A variant grants spells through its features: granted_spell keys on a
+   *  feature and has no variant key. */
 }
 
 export interface PackGrantedSpell {
@@ -236,9 +237,6 @@ export interface PackSubclass {
   skills?: PackSkillRef[];
   tools?: PackToolRef[];
   armourTypes?: ArmourType[];
-  savingThrows?: AbilityCode[];
-  weaponCategories?: WeaponCategory[];
-  spells?: Ref[];
   features?: PackFeature[];
 }
 
@@ -286,7 +284,6 @@ export interface PackEffect {
   rollModifiers?: PackRollModifier[];
   recharge?: PackRecharge;
   modifiers?: PackAbilityModifier[];
-  damageModifiers?: PackDamageModifierRef[];
 }
 
 export interface PackRollModifier {

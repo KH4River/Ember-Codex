@@ -253,17 +253,8 @@ function collectSkill(references: ReferenceCollector, skill: PackSkill, index: n
 function collectSpecies(references: ReferenceCollector, species: PackSpecies, index: number): void {
   for (const [variantIndex, variant] of (species.variants ?? []).entries()) {
     const variantPath = `species[${index}].variants[${variantIndex}]`;
-    const heldBy = `species variant "${variant.key}"`;
 
     collectFeatures(references, variant.features, `${variantPath}.features`);
-    for (const [grantIndex, granted] of (variant.grantedSpells ?? []).entries()) {
-      references.addPackReference(
-        'spell',
-        granted.spell,
-        heldBy,
-        `${variantPath}.grantedSpells[${grantIndex}].spell`,
-      );
-    }
   }
   collectFeatures(references, species.features, `species[${index}].features`);
 }
@@ -315,7 +306,6 @@ function collectSubclass(references: ReferenceCollector, subclass: PackSubclass,
   const heldBy = `subclass "${subclass.key}"`;
 
   collectProficiencies(references, heldBy, atPath, subclass);
-  references.addPackReferences('spell', subclass.spells, heldBy, `${atPath}.spells`);
   collectFeatures(references, subclass.features, `${atPath}.features`);
 }
 
@@ -453,7 +443,6 @@ function collectEffect(
       `${atPath}.modifiers[${index}].ability`,
     );
   }
-  collectDamageModifiers(references, heldBy, `${atPath}.damageModifiers`, effect.damageModifiers);
 }
 
 function collectDamageModifiers(
