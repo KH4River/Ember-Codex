@@ -91,6 +91,24 @@ if (!hashLine) {
   ok('migrations.generated.ts matches shared/db/migrations/*.sql');
 }
 
+// ---- The committed diagram must describe the schema that exists ----
+// docs/schema/schema.dbml is generated, and a stale diagram is worse than no
+// diagram: it is the thing a reader trusts about the delete policy. Same drift
+// the generated TS above has, so it gets the same check over the same digest.
+// Beyond presence, the diagram is checked below for operator correctness: a
+// one-to-one ('-') on columns that are not a unique key, or a mandatory
+// operator on a nullable FK, is exactly the inconsistency dbdiagram warns
+// about, and a stale diagram would keep drawing it as true.
+const diagram = readFileSync(new URL('../docs/schema/schema.dbml', import.meta.url), 'utf8');
+const diagramHash = /^\/\/ source-hash: ([0-9a-f]{64})$/m.exec(diagram);
+if (!diagramHash) {
+  fail('schema.dbml has no source-hash header');
+} else if (diagramHash[1] !== sourceDigest(sources)) {
+  fail('schema.dbml is stale; run `node tools/generate-schema-diagram.mjs`');
+} else {
+  ok('schema.dbml matches shared/db/migrations/*.sql');
+}
+
 // The runtime runner treats user_version as the applied COUNT, so each file's
 // trailing PRAGMA user_version must equal its ordinal (001 -> 1). If that ever
 // breaks, the runner would skip or replay migrations.
@@ -132,9 +150,15 @@ if (commentSemicolons === 0) {
 const cols = new Map(tables.map((t) => [t.name, new Set(columnsOf(t.name))]));
 let bad = 0;
 let fkCount = 0;
+// foreign_key_list is one row per column, so a composite key arrives as several
+// rows sharing an `id`. The diagram draws one relationship per constraint, so it
+// is counted separately -- the column total and the relationship total each
+// appear in the output below.
+const fkConstraints = new Set();
 for (const t of tables) {
   for (const fk of db.prepare(`PRAGMA foreign_key_list('${t.name}')`).all()) {
     fkCount++;
+    fkConstraints.add(`${t.name}#${fk.id}`);
     if (!cols.has(fk.table)) {
       fail(`FK target table missing: ${fk.table} (from ${t})`);
       bad++;
@@ -175,6 +199,105 @@ for (const [t, step] of Object.entries(IMPORT_STEP)) {
   }
 }
 if (backwards === 0) expect('no pack table references one the importer reaches later', backwards, 0);
+
+// The digest above proves the file was generated from the schema that exists.
+// It does not prove the generator wrote all of it: a truncated emit still
+// matches its own header. Count what the schema says must be there against what
+// the file has, now that the FK walk above has counted the keys.
+//
+// CHECK bodies are counted by a scan written here rather than shared with the
+// generator, on purpose. A digest has to be the same algorithm in both places or
+// the comparison means nothing; this is an independent re-derivation, which is
+// the value of checking. It balances parentheses because a body can nest --
+// length(attribution) > 0 -- and steps over quoted literals so a paren inside a
+// string cannot end the scan early.
+let checksInDdl = 0;
+for (const { sql: ddlText } of db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND sql IS NOT NULL").all()) {
+  for (const m of ddlText.matchAll(/check\s*\(/gi)) {
+    let depth = 0;
+    let j = m.index + m[0].length - 1;
+    for (; j < ddlText.length; j++) {
+      const c = ddlText[j];
+      if (c === "'") {
+        while (++j < ddlText.length && ddlText[j] !== "'") if (ddlText[j] === "'" && ddlText[j + 1] === "'") j++;
+        continue;
+      }
+      if (c === '(') depth++;
+      else if (c === ')' && --depth === 0) break;
+    }
+    if (ddlText.slice(m.index + m[0].length, j).trim()) checksInDdl++;
+  }
+}
+
+const dbmlTables = [...diagram.matchAll(/^Table (\w+) \{$/gm)].map((m) => m[1]);
+for (const [what, got, want] of [
+  ['tables', dbmlTables.length, tables.length],
+  ['foreign keys', (diagram.match(/^Ref: /gm) ?? []).length, fkConstraints.size],
+  ['checks', (diagram.match(/^ {4}`/gm) ?? []).length, checksInDdl],
+]) {
+  if (got === want) ok(`schema.dbml has all ${want} ${what}`);
+  else fail(`schema.dbml has ${got} ${what}, expected ${want}`);
+}
+// Counts can still add up with a name wrong in two places, so check uniqueness.
+const repeated = dbmlTables.filter((t, i) => dbmlTables.indexOf(t) !== i);
+if (repeated.length === 0) ok('schema.dbml names every table exactly once');
+else fail(`schema.dbml repeats: ${[...new Set(repeated)].join(', ')}`);
+
+// ---- Every Ref: operator must agree with the schema's own facts ----
+// dbdiagram warns whenever an operator contradicts the columns it joins: a
+// one-to-one ('-') on a column set that is not a unique key, or a mandatory
+// operator on a nullable FK. The generator derives the operator from these
+// same pragmas, so this check re-derives it independently rather than
+// importing the generator's helper: two implementations forced to agree are
+// worth more than one used twice, the same reasoning as the CHECK scan above.
+const refOps = new Map([
+  ['-', { key: true, notNull: true }],
+  ['-?', { key: true, notNull: false }],
+  ['>', { key: false, notNull: true }],
+  ['>?', { key: false, notNull: false }],
+]);
+let checkedRefs = 0;
+let badRefOps = 0;
+// The loop below must parse every line counting as a Ref, not just most of
+// them: an unparsed line fails nothing and would sit inside the ok count.
+const refLineCount = (diagram.match(/^Ref: /gm) ?? []).length;
+for (const [, child, fromRaw, op] of diagram.matchAll(/^Ref: (\w+)\.(\([\w, ()]+\)|\w+) (\S+) /gm)) {
+  checkedRefs++;
+  const want = refOps.get(op);
+  if (!want) {
+    fail(`schema.dbml ref ${child}.${fromRaw} has unknown operator '${op}'`);
+    badRefOps++;
+    continue;
+  }
+  const childCols = fromRaw.replace(/^\(|\)$/g, '').split(',').map((s) => s.trim());
+  const info = db.prepare(`PRAGMA table_info('${child}')`).all();
+  const pkCols = info.filter((c) => c.pk > 0).sort((a, b) => a.pk - b.pk).map((c) => c.name);
+  const uniqueSets = [pkCols.join(',')];
+  for (const idx of db.prepare(`PRAGMA index_list('${child}')`).all()) {
+    if (!idx.unique) continue;
+    // A partial index constrains only its matching rows, so it makes nothing
+    // a key of the whole table.
+    const indexSql = db.prepare(`SELECT sql FROM sqlite_master WHERE type='index' AND name=?`).get(idx.name)?.sql ?? '';
+    if (/\bwhere\b/i.test(indexSql)) continue;
+    uniqueSets.push(
+      db.prepare(`PRAGMA index_info('${idx.name}')`).all().sort((a, b) => a.seqno - b.seqno).map((c) => c.name).join(','),
+    );
+  }
+  const isKey = uniqueSets.includes(childCols.join(','));
+  // The rowid-alias rule again, written out: a single-column INTEGER PRIMARY
+  // KEY reports notnull 0 whatever the declaration says.
+  const allNotNull = childCols.every((name) => {
+    const c = info.find((x) => x.name === name);
+    return c.notnull || (c.pk > 0 && pkCols.length === 1);
+  });
+  if (isKey !== want.key || allNotNull !== want.notNull) {
+    fail(`schema.dbml ref ${child}.${fromRaw} uses '${op}' but the schema says key=${isKey} notNull=${allNotNull}`);
+    badRefOps++;
+  }
+}
+if (checkedRefs === refLineCount && checkedRefs > 0 && badRefOps === 0) {
+  ok(`all ${checkedRefs} Ref: operators agree with the schema's cardinality and nullability`);
+}
 
 // ---- Behavioural checks against real 2024 rules ----
 
