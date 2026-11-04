@@ -92,33 +92,39 @@ export async function vocabularySize(port: DatabasePort, table: ClosedTable): Pr
   return row?.n ?? 0;
 }
 
+/** The answer for a closed-vocabulary value. These tables are seeded and have
+ *  no pack owner; the validator only needs to know whether the value exists. */
+export type CodeResolution =
+  | { found: true }
+  | { found: false; reason: 'no-such-key'; source: null; key: string };
+
 /** Resolves one closed-vocabulary value. No pack scoping and no fallback: these
  *  tables are seeded, so there is one row or none. */
 export async function resolveCode(
   port: DatabasePort,
   table: ClosedTable,
   value: unknown,
-): Promise<Resolution> {
+): Promise<CodeResolution> {
   if (typeof value !== 'string') {
     throw new TypeError(`a ${table} value must be a string, got ${typeof value}`);
   }
   const column = CLOSED_TABLES[table];
-  const row = await port.get<{ id: number }>(
-    `SELECT id FROM "${table}" WHERE ${column} = ?`,
+  const row = await port.get<{ present: number }>(
+    `SELECT 1 AS present FROM "${table}" WHERE ${column} = ?`,
     [value],
   );
-  if (row) return { found: true, id: row.id };
+  if (row) return { found: true };
   return { found: false, reason: 'no-such-key', source: null, key: value };
 }
 
 /** Resolves one reference to a row id. A bare key looks in the importing pack
- *  first, then at global vocabulary. A qualified key looks only in the pack it
- *  names, so a typo cannot quietly resolve to a row the author did not mean. */
+ *  first, then at global vocabulary; null skips the pack lookup. A qualified
+ *  key looks only in the pack it names. */
 export async function resolveReference(
   port: DatabasePort,
   table: KeyedTable,
   ref: unknown,
-  ownSourceId: number,
+  ownSourceId: number | null,
 ): Promise<Resolution> {
   if (!isKeyedTable(table)) {
     throw new TypeError(`"${table}" is not a table a pack may reference`);
@@ -138,10 +144,13 @@ export async function resolveReference(
     return { found: false, reason: 'no-such-key', source, key };
   }
 
-  const own = await port.get<{ id: number }>(
-    `SELECT id FROM "${table}" WHERE source_id = ? AND slug = ?`,
-    [ownSourceId, key],
-  );
+  let own: { id: number } | undefined;
+  if (ownSourceId !== null) {
+    own = await port.get<{ id: number }>(
+      `SELECT id FROM "${table}" WHERE source_id = ? AND slug = ?`,
+      [ownSourceId, key],
+    );
+  }
   if (own) return { found: true, id: own.id };
 
   const global = await port.get<{ id: number }>(

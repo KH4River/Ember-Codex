@@ -16,6 +16,7 @@ import type {
 import type { DatabasePort } from '../db/DatabasePort';
 import {
   CLOSED_TABLES,
+  parseReference,
   resolveCode,
   resolveReference,
   vocabularySize,
@@ -68,7 +69,7 @@ function isJsonObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-function isNonEmptyString(value: unknown): boolean {
+function isNonEmptyString(value: unknown): value is string {
   return typeof value === 'string' && value.trim() !== '';
 }
 
@@ -474,6 +475,60 @@ function describeUnresolved(
   return `${subject} "${site.value}" is referenced by ${site.heldBy} at ${site.atPath} but is not in this pack`;
 }
 
+/** The keys the file itself declares. A bare reference means "this pack's own
+ *  row", and after import that is exactly this set -- not the same pack's old
+ *  rows, which the replace loop is about to rewrite or remove. */
+export function declaredKeys(file: PackFile): Map<KeyedTable, Set<string>> {
+  const keys = new Map<KeyedTable, Set<string>>();
+  const add = (table: KeyedTable, key: unknown): void => {
+    if (!isNonEmptyString(key)) return;
+    const set = keys.get(table);
+    if (set) set.add(key);
+    else keys.set(table, new Set([key]));
+  };
+  const addFeatures = (features: readonly PackFeature[] | undefined): void => {
+    for (const feature of features ?? []) {
+      add('feature', feature.key);
+      for (const effect of feature.effects ?? []) add('effect', effect.key);
+    }
+  };
+
+  for (const entry of file.skills ?? []) add('skill', entry.key);
+  for (const entry of file.tools ?? []) add('tool', entry.key);
+  for (const entry of file.languages ?? []) add('language', entry.key);
+  for (const entry of file.conditions ?? []) add('condition', entry.key);
+
+  for (const entry of file.species ?? []) {
+    add('species', entry.key);
+    addFeatures(entry.features);
+    for (const variant of entry.variants ?? []) {
+      add('species_variant', variant.key);
+      addFeatures(variant.features);
+    }
+  }
+  for (const entry of file.backgrounds ?? []) {
+    add('background', entry.key);
+    addFeatures(entry.features);
+  }
+  for (const entry of file.classes ?? []) {
+    add('class', entry.key);
+    addFeatures(entry.features);
+    for (const subclass of entry.subclasses ?? []) {
+      add('subclass', subclass.key);
+      addFeatures(subclass.features);
+    }
+  }
+  for (const entry of file.feats ?? []) {
+    add('feat', entry.key);
+    for (const effect of entry.effects ?? []) add('effect', effect.key);
+  }
+  for (const entry of file.spells ?? []) add('spell', entry.key);
+  for (const entry of file.effects ?? []) add('effect', entry.key);
+  for (const entry of file.items ?? []) add('item', entry.key);
+
+  return keys;
+}
+
 /** The four vocabularies a pack may extend. The table name and the collection
  *  that declares it differ: `condition` is declared in `conditions`. */
 const PACK_EXTENSIBLE_VOCABULARY = [
@@ -515,7 +570,6 @@ async function findRedefinedGlobalVocabulary(
 export async function validateReferences(
   port: DatabasePort,
   file: PackFile,
-  ownSourceId: number,
 ): Promise<string[]> {
   const missingSeedTables = await findTablesWithNoSeedData(port);
   if (missingSeedTables.length > 0) {
@@ -526,8 +580,9 @@ export async function validateReferences(
   }
 
   const problems = await findRedefinedGlobalVocabulary(port, file);
+  const declared = declaredKeys(file);
   for (const site of collectEveryReference(file)) {
-    const problem = await checkOne(site, port, ownSourceId);
+    const problem = await checkOne(site, port, file.source.key, declared);
     if (problem !== undefined) problems.push(problem);
   }
   return problems;
@@ -545,7 +600,8 @@ async function findTablesWithNoSeedData(port: DatabasePort): Promise<ClosedTable
 async function checkOne(
   site: ReferenceSite,
   port: DatabasePort,
-  ownSourceId: number,
+  ownSourceKey: string,
+  declared: ReadonlyMap<KeyedTable, ReadonlySet<string>>,
 ): Promise<string | undefined> {
   if (site.kind === 'vocabulary') {
     const result = await resolveCode(port, site.table as ClosedTable, site.value);
@@ -554,7 +610,21 @@ async function checkOne(
     return `${site.value} is referenced by ${site.heldBy} at ${site.atPath} but is not a known ${subject}`;
   }
 
-  const result = await resolveReference(port, site.table as KeyedTable, site.value, ownSourceId);
+  const table = site.table as KeyedTable;
+  const { source, key } = parseReference(site.value);
+  if (source === null) {
+    if (declared.get(table)?.has(key)) return undefined;
+    const global = await resolveReference(port, table, site.value, null);
+    if (global.found) return undefined;
+    return describeUnresolved(site, 'no-such-key');
+  }
+
+  if (source === ownSourceKey) {
+    if (declared.get(table)?.has(key)) return undefined;
+    return describeUnresolved(site, 'no-such-key');
+  }
+
+  const result = await resolveReference(port, table, site.value, null);
   if (result.found) return undefined;
   if (result.reason === 'no-such-pack') {
     return describeUnresolved(site, result.reason, result.source ?? undefined);
@@ -566,10 +636,9 @@ async function checkOne(
 export async function validatePack(
   port: DatabasePort,
   input: unknown,
-  ownSourceId: number,
 ): Promise<PackFile> {
   const file = validateStructure(input);
-  const problems = await validateReferences(port, file, ownSourceId);
+  const problems = await validateReferences(port, file);
   if (problems.length > 0) throw new PackValidationError(problems);
   return file;
 }

@@ -80,7 +80,7 @@ describe('pack validation', () => {
   /** Every problem validatePack found, or [] when it accepted the file. */
   const problemsFoundIn = async (file: unknown): Promise<string[]> => {
     try {
-      await validatePack(port, file, homebrewPackId);
+      await validatePack(port, file);
       return [];
     } catch (error) {
       expect(error).toBeInstanceOf(PackValidationError);
@@ -160,8 +160,21 @@ describe('pack validation', () => {
         ...aPackFile(),
         backgrounds: [aBackground({ originFeats: ['alert'] })],
         classes: [aClass({ spells: ['srd-5.2.1/fireball'] })],
+        feats: [{ key: 'alert', name: 'Alert', description: 'x', category: 'general' }],
       };
       expect(await problemsFoundIn(file)).toEqual([]);
+    });
+
+    it('does not resolve a bare key to the same pack row the file no longer declares', async () => {
+      // The replace loop would delete that row, so a reference to it is a
+      // dangling reference even though it is still in the database.
+      const file = {
+        ...aPackFile(),
+        backgrounds: [aBackground({ originFeats: ['alert'] })],
+      };
+      expect(await problemsFoundIn(file)).toEqual([
+        'feat "alert" is referenced by background "wayfarer" at backgrounds[0].originFeats[0] but is not in this pack',
+      ]);
     });
 
     it('names the value, the referrer and the path when a spell names no such damage type', async () => {
@@ -214,7 +227,7 @@ describe('pack validation', () => {
           aBackground({ key: 'b', name: 'B', originFeats: ['also-nope'] }),
         ],
       };
-      await expect(validatePack(port, file, homebrewPackId)).rejects.toThrow(/3 problems/);
+      await expect(validatePack(port, file)).rejects.toThrow(/3 problems/);
     });
   });
 
