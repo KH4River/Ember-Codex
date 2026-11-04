@@ -92,7 +92,6 @@ The application ships no rules text. Its seed data is fixed vocabulary only, suc
 
 `source.license` and `source.attribution` record what a pack declares and the credit that comes with it, and a `CHECK` constraint prevents a pack from claiming a licence without also carrying an attribution. This only records what the user said about their own file, though. Nothing verifies the claim, and the database is local to the device with no server and no upload path.
 
-This is not legal advice, and the licensing position should be reviewed by a lawyer before any release.
 
 ## Roadmap
 
