@@ -69,7 +69,7 @@ As of writing this, all Electron logic lives within the folder `electron/`.
 | `shared/` | Platform-agnostic code imported by both shells: the schema, migrations, repositories and models |
 | `electron/` | Main process only, being window, paths and IPC rather than application logic |
 | `android/` | The generated Android shell |
-| `docs/` | `android-setup.md`, for building and running it |
+| `docs/` | Android setup, and notes on an alternative tool |
 | `tools/` | Verification harnesses, which are not application code |
 
 Because `angular.json` sits inside `angular/`, the npm scripts `cd angular` before calling `ng`, and running `ng` from the repository root fails with a confusing "not available when running the Angular CLI outside a workspace".
