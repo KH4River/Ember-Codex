@@ -7,13 +7,10 @@ const DATABASE = 'dnd';
 const READ_ONLY = false;
 
 /**
- * Mobile adapter: the Capacitor SQLite plugin over native SQLite.
- *
- * Native only. The browser is not a target, so there is no web engine to fall
- * back to and open() refuses there rather than failing obscurely.
- *
- * open() is idempotent. The service imports this module lazily so the plugin
- * stays out of the initial bundle.
+ * Mobile adapter: the Capacitor SQLite plugin over native SQLite. The browser is
+ * not a target, so open() refuses there rather than failing obscurely. open() is
+ * idempotent, and the service imports this module lazily to keep the plugin out
+ * of the initial bundle.
  */
 export class CapacitorSqliteDriver implements DatabasePort {
   private readonly sqlite = new SQLiteConnection(CapacitorSQLite);

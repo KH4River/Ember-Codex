@@ -8,12 +8,9 @@ import { registerDatabaseIpc } from './ipc';
 const DEV_SERVER_URL = 'http://localhost:4200/';
 
 /**
- * Loads the dev server, retrying while it is still starting.
- *
- * ng serve binds the port late on a cold build, so a fixed delay races it and
- * the window paints before the document exists. The retry is driven by a
- * failed main-frame navigation rather than by a timer: it stops as soon as the
- * server answers, and it never outlives the window.
+ * Loads the dev server, retrying while it starts. `ng serve` binds late on a
+ * cold build, so a fixed delay races it. The retry is driven by a failed
+ * main-frame navigation rather than a timer, so it stops when the server answers.
  */
 const loadDevServer = (win: BrowserWindow, url: string, attempts = 60): void => {
   const onFail = (

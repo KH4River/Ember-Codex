@@ -1,14 +1,8 @@
 /**
- * Shared character models.
- *
- * Ruleset: 2024 Player's Handbook ONLY (labelled "5.5e" on D&D Beyond since
- * March 2026). There is deliberately no `ruleYear` field — the app supports
- * one ruleset, so the value would always be constant. If the app ever
- * supports a second ruleset, that is a `002` migration plus a version
- * discriminator, not a field bolted on here.
- *
- * These types mirror shared/db/migrations/001_initial.sql. If you change one,
- * change the other.
+ * Shared character models. 2024 Player's Handbook only: there is no `ruleYear`
+ * field because the app supports one ruleset. A second ruleset would need a `002`
+ * migration and a version discriminator. These types mirror
+ * shared/db/migrations/001_initial.sql; change both.
  */
 
 export interface CharacterBaseData {

@@ -11,12 +11,10 @@ import type {
 } from '@/models/ContentPack';
 
 /**
- * The messages are the contract: the UI shows them and the user acts on them,
- * so they are pinned here before anything imports them.
- *
- * Each test changes one field of one fixture. The builders below exist so a
- * test reads as "a spell whose damage type is misspelled" rather than as
- * fourteen lines of spell.
+ * The messages are the contract: the UI shows them, so they are pinned here.
+ * Each test changes one field of one fixture; the builders below keep a test
+ * reading as "a spell whose damage type is misspelled" rather than fourteen
+ * lines of spell.
  */
 describe('pack validation', () => {
   let port: NodeSqlitePort;

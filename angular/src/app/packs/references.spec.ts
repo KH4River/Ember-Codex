@@ -4,13 +4,10 @@ import { MIGRATIONS } from '@/db/migrations.generated';
 import { parseReference, resolveReference, type Resolution } from '@/packs/references';
 
 /**
- * The reference rule, against a real schema.
- *
- * Bare key: the importing pack own row, else a global one.
- * Qualified `source/key`: that named pack, and only that pack.
- *
- * The fallback cannot tie only because the importer refuses a pack that
- * defines a slug which already exists globally, so these cases are exhaustive.
+ * The reference rule against a real schema: a bare key means the importing
+ * pack's own row, else a global one; a qualified `source/key` means that named
+ * pack only. The fallback cannot tie because the importer refuses a pack that
+ * redefines a global slug.
  */
 describe('pack references', () => {
   let port: NodeSqlitePort;
