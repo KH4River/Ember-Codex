@@ -55,7 +55,7 @@ npm test
 npm run build
 ```
 
-`verify-migration.mjs` applies the schema to an in-memory database and checks that it holds up: that every table is created, that every foreign key resolves to a real table and column, and that the rules-specific shapes behave such as HP below zero, weapon masteries, ability ceilings and rest generations. It is worth reading, since it doubles as executable documentation of what this project believes.
+`verify-migration.mjs` applies the schema to an in-memory database and checks that it holds up: that every table is created, that every foreign key resolves to a real table and column, and that the rules-specific shapes behave such as HP at zero, weapon masteries, ability ceilings and rest generations. It is worth reading, since it doubles as executable documentation of what this project believes.
 
 None of those three compile `electron/`, so anything touching the main process also needs `npm run build:electron`, since a TypeScript error in `electron/app.ts` would otherwise pass every gate.
 
