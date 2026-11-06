@@ -1,15 +1,8 @@
 /**
- * The JSON types of a content pack. These mirror
- * shared/db/migrations/001_initial.sql the way Character.ts does.
- *
- * Four things never appear in a pack file:
- *
- *   - `source_id`. Pack identity is `source.key`.
- *   - `imported_at`. It records when *this user* imported the pack.
- *   - `xp_threshold`. No source_id, no slug, so a file cannot key on it.
- *   - `damage_modifier`. Derived from its referrer, exported inline on it.
- *
- * shared/packs/mapping.ts maps these names to columns.
+ * The JSON types of a content pack, mirroring 001_initial.sql. Never in a pack
+ * file: `source_id` (identity is `source.key`), `imported_at` (per-user),
+ * `xp_threshold` (no key), and `damage_modifier` (exported inline on its
+ * referrer). shared/packs/mapping.ts maps names to columns.
  */
 
 // ---- Vocabulary, referenced by code rather than by key ----
@@ -17,7 +10,6 @@
 /** `ability.code`. Closed vocabulary, six values, seeded by the migration. */
 export type AbilityCode = 'STR' | 'DEX' | 'CON' | 'INT' | 'WIS' | 'CHA';
 
-/** `feat_category.code`. */
 export type FeatCategory = 'origin' | 'general' | 'fighting_style' | 'epic_boon';
 
 /** `class_grant_kind.code`. A fifth mechanic is a seed INSERT, not a schema
@@ -28,10 +20,8 @@ export type KnownGrantKind =
   | 'fighting_style'
   | 'weapon_mastery';
 
-/** `class.casting_progression`. */
 export type CastingProgression = 'none' | 'full' | 'half' | 'pact';
 
-/** `roll_scope.code`. */
 export type RollScope =
   | 'initiative'
   | 'ability_check'
@@ -53,7 +43,7 @@ export type ArmourType = 'light' | 'medium' | 'heavy' | 'shield';
 export type WeaponCategory = 'simple_melee' | 'simple_ranged' | 'martial_melee' | 'martial_ranged';
 export type WeaponProperty =
   | 'finesse' | 'versatile' | 'heavy' | 'light' | 'loading'
-  | 'reach' | 'thrown' | 'two_handed' | 'ammunition' | 'improvised';
+  | 'reach' | 'thrown' | 'two_handed' | 'ammunition';
 export type MasteryProperty =
   | 'cleave' | 'graze' | 'nick' | 'push' | 'sap' | 'slow' | 'topple' | 'vex';
 export type SpellSchool =
@@ -65,7 +55,8 @@ export type RollModifierKind =
   | 'advantage' | 'disadvantage' | 'flat'
   | 'dice' | 'reroll_higher' | 'reroll_lower';
 export type SpellDamageSelection = 'fixed' | 'choice';
-export type SpellDamageDelivery = 'cast' | 'aura' | 'other';
+export type SpellDamageDelivery =
+  | 'cast' | 'aura' | 'bonus_action' | 'pool' | 'beam' | 'environmental';
 
 /** A reference to another row: `skyriding` is this pack's own row, else a
  *  global one; `srd-5.2.1/fireball` is that named pack. */
