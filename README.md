@@ -1,6 +1,6 @@
 # Ember Codex
 
-This is an Ember Codex app built mainly with [Electron](https://electronjs.org) and [Angular](https://angular.dev), with SQLite underneath. It is a character creator for the 2024 D&D ruleset that keeps everything on your own device, so there is no account and nothing to sync: a character is a file that stays where you put it. Content does not ship with the application but arrives separately as importable packs, each of which declares its own licence and attribution.
+This is an Ember Codex app built mainly with [Electron](https://electronjs.org) and [Angular](https://angular.dev), with SQLite underneath. It is a character creator for the 2024 D&D ruleset that keeps everything on your own device, so there is no account and nothing to sync: a character stays on the device where you made it. Content does not ship with the application; it is intended to arrive separately as importable packs, each able to declare its own licence and attribution.
 
 The project is under active development.
 
