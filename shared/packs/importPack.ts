@@ -1,5 +1,6 @@
 import type { DatabasePort } from '../db/DatabasePort';
 import type {
+  PackArmour,
   PackBackground,
   PackClass,
   PackEffect,
@@ -291,6 +292,12 @@ function collectEffects(file: PackFile, features: readonly FeatureEntry[]): Pack
   }
   for (const { feature } of features) {
     for (const effect of feature.effects ?? []) effects.push(effect);
+  }
+  for (const item of file.items ?? []) {
+    for (const effect of item.effects ?? []) effects.push(effect);
+  }
+  for (const spell of file.spells ?? []) {
+    for (const effect of spell.effects ?? []) effects.push(effect);
   }
   return effects;
 }
@@ -982,6 +989,14 @@ async function writeSpellSatellites(
       [spellId, damageTypeId, damage.selection, damage.delivery],
     );
   }
+
+  await port.run('DELETE FROM spell_effect WHERE spell_id = ?', [spellId]);
+  for (const effect of spell.effects ?? []) {
+    await port.run('INSERT INTO spell_effect (spell_id, effect_id) VALUES (?, ?)', [
+      spellId,
+      ids.effects.get(effect.key)!,
+    ]);
+  }
 }
 
 async function writeEffectSatellites(
@@ -1107,6 +1122,7 @@ async function writeWeapon(
   itemKey: string,
   weapon: PackWeapon,
   itemId: number,
+  sourceId: number,
 ): Promise<void> {
   if (weapon.damageType === undefined) {
     throw new PackImportError([`weapon "${itemKey}" has no damage type`]);
@@ -1119,6 +1135,32 @@ async function writeWeapon(
     masteryId = await requiredCode(port, 'mastery_property', weapon.masteryProperty);
   }
 
+  let ammunitionId: number | null = null;
+  if (weapon.ammunition !== undefined) {
+    ammunitionId = await requiredReference(port, 'item', weapon.ammunition, sourceId);
+    const marker = await port.get<{ item_id: number }>(
+      'SELECT item_id FROM ammunition WHERE item_id = ?',
+      [ammunitionId],
+    );
+    if (!marker) {
+      throw new PackImportError([
+        `weapon "${itemKey}" references "${weapon.ammunition}" but that item is not ammunition`,
+      ]);
+    }
+  }
+
+  const values = [
+    categoryId,
+    weapon.damageDice,
+    damageTypeId,
+    masteryId,
+    weapon.versatileDice ?? null,
+    weapon.attackBonus ?? 0,
+    weapon.damageBonus ?? 0,
+    weapon.thrownRange ?? null,
+    ammunitionId,
+  ];
+
   const existing = await port.get<{ item_id: number }>(
     'SELECT item_id FROM weapon WHERE item_id = ?',
     [itemId],
@@ -1126,31 +1168,93 @@ async function writeWeapon(
   if (existing) {
     await port.run(
       `UPDATE weapon
-          SET category_id = ?, damage_dice = ?, damage_type_id = ?, mastery_property_id = ?
+          SET category_id = ?, damage_dice = ?, damage_type_id = ?, mastery_property_id = ?,
+              versatile_dice = ?, attack_bonus = ?, damage_bonus = ?, thrown_range = ?,
+              ammunition_id = ?
         WHERE item_id = ?`,
-      [categoryId, weapon.damageDice, damageTypeId, masteryId, itemId],
+      [...values, itemId],
     );
     return;
   }
 
   await port.run(
-    `INSERT INTO weapon (item_id, category_id, damage_dice, damage_type_id, mastery_property_id)
-     VALUES (?, ?, ?, ?, ?)`,
-    [itemId, categoryId, weapon.damageDice, damageTypeId, masteryId],
+    `INSERT INTO weapon
+       (item_id, category_id, damage_dice, damage_type_id, mastery_property_id,
+        versatile_dice, attack_bonus, damage_bonus, thrown_range, ammunition_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [itemId, ...values],
   );
+}
+
+async function writeArmour(
+  port: DatabasePort,
+  armour: PackArmour,
+  itemId: number,
+): Promise<void> {
+  const values = [
+    armour.armourType,
+    armour.baseAc,
+    armour.maxDexBonus ?? null,
+    bool(armour.stealthDisadvantage),
+  ];
+  const existing = await port.get<{ item_id: number }>(
+    'SELECT item_id FROM armour WHERE item_id = ?',
+    [itemId],
+  );
+  if (existing) {
+    await port.run(
+      `UPDATE armour
+          SET armour_type = ?, base_ac = ?, max_dex_bonus = ?, stealth_disadvantage = ?
+        WHERE item_id = ?`,
+      [...values, itemId],
+    );
+    return;
+  }
+  await port.run(
+    `INSERT INTO armour
+       (item_id, armour_type, base_ac, max_dex_bonus, stealth_disadvantage)
+     VALUES (?, ?, ?, ?, ?)`,
+    [itemId, ...values],
+  );
+}
+
+async function writeAmmunitionMarkers(
+  port: DatabasePort,
+  file: PackFile,
+  ids: PackIds,
+): Promise<void> {
+  for (const item of file.items ?? []) {
+    const itemId = ids.items.get(item.key)!;
+    const existing = await port.get<{ item_id: number }>(
+      'SELECT item_id FROM ammunition WHERE item_id = ?',
+      [itemId],
+    );
+    if (item.ammunition) {
+      if (!existing) await port.run('INSERT INTO ammunition (item_id) VALUES (?)', [itemId]);
+    } else if (existing) {
+      await port.run('DELETE FROM ammunition WHERE item_id = ?', [itemId]);
+    }
+  }
 }
 
 async function writeItemSatellites(
   port: DatabasePort,
   item: PackItem,
   ids: PackIds,
+  sourceId: number,
 ): Promise<void> {
   const itemId = ids.items.get(item.key)!;
 
   if (item.weapon) {
-    await writeWeapon(port, item.key, item.weapon, itemId);
+    await writeWeapon(port, item.key, item.weapon, itemId, sourceId);
   } else {
     await port.run('DELETE FROM weapon WHERE item_id = ?', [itemId]);
+  }
+
+  if (item.armour) {
+    await writeArmour(port, item.armour, itemId);
+  } else {
+    await port.run('DELETE FROM armour WHERE item_id = ?', [itemId]);
   }
 
   await port.run('DELETE FROM weapon_property_map WHERE item_id = ?', [itemId]);
@@ -1159,6 +1263,14 @@ async function writeItemSatellites(
     await port.run('INSERT INTO weapon_property_map (item_id, property_id) VALUES (?, ?)', [
       itemId,
       propertyId,
+    ]);
+  }
+
+  await port.run('DELETE FROM item_effect WHERE item_id = ?', [itemId]);
+  for (const effect of item.effects ?? []) {
+    await port.run('INSERT INTO item_effect (item_id, effect_id) VALUES (?, ?)', [
+      itemId,
+      ids.effects.get(effect.key)!,
     ]);
   }
 
@@ -1204,8 +1316,9 @@ async function writeSatellites(
   for (const effect of effects) {
     await writeEffectSatellites(port, effect, ids);
   }
+  await writeAmmunitionMarkers(port, file, ids);
   for (const item of file.items ?? []) {
-    await writeItemSatellites(port, item, ids);
+    await writeItemSatellites(port, item, ids, sourceId);
   }
 }
 

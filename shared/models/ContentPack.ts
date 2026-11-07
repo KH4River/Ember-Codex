@@ -337,6 +337,7 @@ export interface PackSpell {
   materialCostCp: number;
   description?: string;
   damageTypes?: PackSpellDamageType[];
+  effects?: PackEffect[];
 }
 
 export interface PackSpellDamageType {
@@ -355,8 +356,20 @@ export interface PackItem {
   costCp: number;
   description?: string;
   requiresAttunement: boolean;
+  /** Marks the item as ammunition, so a weapon can reference it. */
+  ammunition?: boolean;
   weapon?: PackWeapon;
+  armour?: PackArmour;
+  effects?: PackEffect[];
   damageModifiers?: PackDamageModifierRef[];
+}
+
+export interface PackArmour {
+  armourType: ArmourType;
+  baseAc: number;
+  /** Omitted means no Dexterity cap. */
+  maxDexBonus?: number;
+  stealthDisadvantage: boolean;
 }
 
 export interface PackWeapon {
@@ -364,5 +377,11 @@ export interface PackWeapon {
   damageDice: string;
   damageType?: Ref;
   masteryProperty?: MasteryProperty;
+  versatileDice?: string;
+  attackBonus?: number;
+  damageBonus?: number;
+  thrownRange?: number;
+  /** Another item in this pack, or a `source/key` reference. */
+  ammunition?: Ref;
   properties?: WeaponProperty[];
 }

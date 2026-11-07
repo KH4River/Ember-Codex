@@ -6,6 +6,7 @@ import type {
   MasteryProperty,
   PackAbilityModifier,
   PackAbilityPrereq,
+  PackArmour,
   PackBackground,
   PackClass,
   PackCondition,
@@ -44,11 +45,13 @@ interface Pack {
 }
 
 /** The junction that reaches an effect through the content carrying it. The
- *  format nests an effect under its feat or its feature; there is no field
- *  for a spell or an item to nest one under. */
+ *  format nests an effect under its parent: a feat, a feature, a spell or an
+ *  item. */
 const EFFECT_JUNCTIONS = {
   feat_effect: 'feat_id',
   feature_effect: 'feature_id',
+  spell_effect: 'spell_id',
+  item_effect: 'item_id',
 } as const;
 
 type EffectJunction = keyof typeof EFFECT_JUNCTIONS;
@@ -106,6 +109,12 @@ function orAbsent<T>(rows: T[]): T[] | undefined {
 /** A nullable column crosses the file only when it holds a value. */
 function orUndefined<T>(value: T | null): T | undefined {
   if (value === null) return undefined;
+  return value;
+}
+
+/** A column whose default is zero crosses the file only when it is not zero. */
+function orUndefinedWhenZero(value: number): number | undefined {
+  if (value === 0) return undefined;
   return value;
 }
 
@@ -645,8 +654,8 @@ async function junctionEffects(
   return effects;
 }
 
-/** The pack's own effects no feat or feature carries: the file's top-level
- *  `effects` collection. */
+/** The pack's own effects no feat, feature, spell or item carries: the file's
+ *  top-level `effects` collection. */
 async function unlinkedEffects(pack: Pack): Promise<PackEffect[]> {
   const rows = await pack.port.all<EffectRow>(
     `SELECT e.id, e.slug, e.name, e.description, e.base_value
@@ -654,6 +663,8 @@ async function unlinkedEffects(pack: Pack): Promise<PackEffect[]> {
       WHERE e.source_id = ?
         AND NOT EXISTS (SELECT 1 FROM feat_effect WHERE effect_id = e.id)
         AND NOT EXISTS (SELECT 1 FROM feature_effect WHERE effect_id = e.id)
+        AND NOT EXISTS (SELECT 1 FROM spell_effect WHERE effect_id = e.id)
+        AND NOT EXISTS (SELECT 1 FROM item_effect WHERE effect_id = e.id)
       ORDER BY e.slug`,
     [pack.sourceId],
   );
@@ -807,6 +818,7 @@ async function spells(pack: Pack): Promise<PackSpell[]> {
       materialCostCp: row.material_cost_cp,
       description: orUndefined(row.description),
       damageTypes: orAbsent(await spellDamageTypes(pack, row.id)),
+      effects: orAbsent(await junctionEffects(pack, 'spell_effect', row.id)),
     });
   }
   return result;
@@ -842,17 +854,19 @@ async function items(pack: Pack): Promise<PackItem[]> {
     cost_cp: number;
     description: string | null;
     requires_attunement: number;
+    is_ammunition: number;
   }>(
-    `SELECT id, slug, name, weight, cost_cp, description, requires_attunement
-       FROM item
-      WHERE source_id = ?
-      ORDER BY slug`,
+    `SELECT i.id, i.slug, i.name, i.weight, i.cost_cp, i.description, i.requires_attunement,
+            EXISTS (SELECT 1 FROM ammunition a WHERE a.item_id = i.id) AS is_ammunition
+       FROM item i
+      WHERE i.source_id = ?
+      ORDER BY i.slug`,
     [pack.sourceId],
   );
 
   const result: PackItem[] = [];
   for (const row of rows) {
-    result.push({
+    const item: PackItem = {
       key: row.slug,
       name: row.name,
       weight: row.weight,
@@ -860,8 +874,12 @@ async function items(pack: Pack): Promise<PackItem[]> {
       description: orUndefined(row.description),
       requiresAttunement: row.requires_attunement === 1,
       weapon: await weapon(pack, row),
+      armour: await armour(pack, row),
+      effects: orAbsent(await junctionEffects(pack, 'item_effect', row.id)),
       damageModifiers: orAbsent(await itemDamageModifiers(pack, row.id)),
-    });
+    };
+    if (row.is_ammunition === 1) item.ammunition = true;
+    result.push(item);
   }
   return result;
 }
@@ -872,12 +890,22 @@ async function weapon(pack: Pack, item: { id: number }): Promise<PackWeapon | un
     damage_dice: string;
     damage_type: string;
     mastery_property: MasteryProperty | null;
+    versatile_dice: string | null;
+    attack_bonus: number;
+    damage_bonus: number;
+    thrown_range: number | null;
+    ammunition_slug: string | null;
+    ammunition_owner: string | null;
   }>(
-    `SELECT wc.code AS category, w.damage_dice, dt.slug AS damage_type, mp.code AS mastery_property
+    `SELECT wc.code AS category, w.damage_dice, dt.slug AS damage_type, mp.code AS mastery_property,
+            w.versatile_dice, w.attack_bonus, w.damage_bonus, w.thrown_range,
+            ai.slug AS ammunition_slug, ao.slug AS ammunition_owner
        FROM weapon w
        JOIN weapon_category wc ON wc.id = w.category_id
        JOIN damage_type dt ON dt.id = w.damage_type_id
        LEFT JOIN mastery_property mp ON mp.id = w.mastery_property_id
+       LEFT JOIN item ai ON ai.id = w.ammunition_id
+       LEFT JOIN source ao ON ao.id = ai.source_id
       WHERE w.item_id = ?`,
     [item.id],
   );
@@ -891,12 +919,44 @@ async function weapon(pack: Pack, item: { id: number }): Promise<PackWeapon | un
     [item.id],
   );
 
-  return {
+  const result: PackWeapon = {
     category: row.category,
     damageDice: row.damage_dice,
     damageType: row.damage_type,
     masteryProperty: orUndefined(row.mastery_property),
+    versatileDice: orUndefined(row.versatile_dice),
+    attackBonus: orUndefinedWhenZero(row.attack_bonus),
+    damageBonus: orUndefinedWhenZero(row.damage_bonus),
+    thrownRange: orUndefined(row.thrown_range),
     properties: orAbsent(properties.map((property) => property.code)),
+  };
+  if (row.ammunition_slug !== null) {
+    result.ammunition = reference(pack, {
+      slug: row.ammunition_slug,
+      owner: row.ammunition_owner,
+    });
+  }
+  return result;
+}
+
+async function armour(pack: Pack, item: { id: number }): Promise<PackArmour | undefined> {
+  const row = await pack.port.get<{
+    armour_type: ArmourType;
+    base_ac: number;
+    max_dex_bonus: number | null;
+    stealth_disadvantage: number;
+  }>(
+    `SELECT armour_type, base_ac, max_dex_bonus, stealth_disadvantage
+       FROM armour
+      WHERE item_id = ?`,
+    [item.id],
+  );
+  if (row === undefined) return undefined;
+  return {
+    armourType: row.armour_type,
+    baseAc: row.base_ac,
+    maxDexBonus: orUndefined(row.max_dex_bonus),
+    stealthDisadvantage: row.stealth_disadvantage === 1,
   };
 }
 

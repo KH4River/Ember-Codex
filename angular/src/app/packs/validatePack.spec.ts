@@ -203,6 +203,53 @@ describe('pack validation', () => {
       ]);
     });
 
+    it('checks references inside an item effect', async () => {
+      const file = {
+        ...aPackFile(),
+        items: [
+          {
+            key: 'charm',
+            name: 'Charm',
+            weight: 0,
+            costCp: 1,
+            requiresAttunement: false,
+            effects: [
+              {
+                key: 'charm-luck',
+                name: 'Charm Luck',
+                baseValue: 0,
+                rollModifiers: [{ scope: 'nope', kind: 'flat', amount: 1 }],
+              },
+            ],
+          },
+        ],
+      };
+      expect(await problemsFoundIn(file)).toEqual([
+        'nope is referenced by item "charm" at items[0].effects[0].rollModifiers[0].scope but is not a known roll scope',
+      ]);
+    });
+
+    it('checks references inside a spell effect', async () => {
+      const file = {
+        ...aPackFile(),
+        spells: [
+          aSpell({
+            effects: [
+              {
+                key: 'spell-glow',
+                name: 'Spell Glow',
+                baseValue: 0,
+                rollModifiers: [{ scope: 'nope', kind: 'flat', amount: 1 }],
+              },
+            ],
+          }),
+        ],
+      };
+      expect(await problemsFoundIn(file)).toEqual([
+        'nope is referenced by spell "searing-smite" at spells[0].effects[0].rollModifiers[0].scope but is not a known roll scope',
+      ]);
+    });
+
     it('reports every dangling reference, not just the first', async () => {
       const file = {
         ...aPackFile(),

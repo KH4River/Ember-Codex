@@ -122,7 +122,7 @@ describe('importing a pack', () => {
     expect(await rowCount('skill')).toBe(1);
     expect(await rowCount('species_variant')).toBe(1);
     expect(await rowCount('feature')).toBe(6);
-    expect(await rowCount('effect')).toBe(4);
+    expect(await rowCount('effect')).toBe(6);
     expect(await rowCount('damage_modifier')).toBe(1);
   });
 
@@ -331,6 +331,66 @@ describe('importing a pack', () => {
     await importPack(port, itemPack);
 
     expect(await rowCount('damage_modifier')).toBe(1);
+  });
+
+  it('links a weapon to ammunition that appears later in the file', async () => {
+    const pack: PackFile = {
+      ...anEnvelope(),
+      items: [
+        {
+          key: 'shortbow',
+          name: 'Shortbow',
+          weight: 2,
+          costCp: 25,
+          requiresAttunement: false,
+          weapon: {
+            category: 'simple_ranged',
+            damageDice: '1d6',
+            damageType: 'piercing',
+            masteryProperty: 'vex',
+            ammunition: 'arrow',
+          },
+        },
+        { key: 'arrow', name: 'Arrow', weight: 0.05, costCp: 1, requiresAttunement: false, ammunition: true },
+      ],
+    };
+
+    await importPack(port, pack);
+
+    const row = await port.get<{ ammunition_id: number | null }>(
+      `SELECT w.ammunition_id
+         FROM weapon w JOIN item i ON i.id = w.item_id
+        WHERE i.slug = 'shortbow'`,
+    );
+    expect(row!.ammunition_id).not.toBeNull();
+  });
+
+  it('refuses a weapon that references an item which is not ammunition', async () => {
+    const pack: PackFile = {
+      ...anEnvelope(),
+      items: [
+        { key: 'rope', name: 'Rope', weight: 5, costCp: 1, requiresAttunement: false },
+        {
+          key: 'shortbow',
+          name: 'Shortbow',
+          weight: 2,
+          costCp: 25,
+          requiresAttunement: false,
+          weapon: {
+            category: 'simple_ranged',
+            damageDice: '1d6',
+            damageType: 'piercing',
+            masteryProperty: 'vex',
+            ammunition: 'rope',
+          },
+        },
+      ],
+    };
+
+    await expect(importPack(port, pack)).rejects.toThrow(
+      /weapon "shortbow" references "rope" but that item is not ammunition/,
+    );
+    expect(await rowCount('item')).toBe(0);
   });
 
   it('stores a weapon with no mastery property as NULL', async () => {

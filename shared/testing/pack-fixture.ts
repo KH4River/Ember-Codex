@@ -224,6 +224,7 @@ export const packFixture: PackFile = {
       materialCostCp: 0,
       description: 'A falling star burns where it lands.',
       damageTypes: [{ damageType: 'fire', selection: 'choice', delivery: 'cast' }],
+      effects: [{ key: 'starfall-glow', name: 'Starfall Glow', baseValue: 0 }],
     },
     {
       key: 'word-of-light',
@@ -253,6 +254,20 @@ export const packFixture: PackFile = {
     },
   ],
   items: [
+    { key: 'arrow', name: 'Arrow', weight: 0.05, costCp: 1, requiresAttunement: false, ammunition: true },
+    {
+      key: 'chain-shirt',
+      name: 'Chain Shirt',
+      weight: 20,
+      costCp: 5000,
+      requiresAttunement: false,
+      armour: {
+        armourType: 'medium',
+        baseAc: 13,
+        maxDexBonus: 2,
+        stealthDisadvantage: false,
+      },
+    },
     {
       key: 'ember-dagger',
       name: 'Ember Dagger',
@@ -265,9 +280,50 @@ export const packFixture: PackFile = {
         damageDice: '1d4',
         damageType: 'piercing',
         masteryProperty: 'nick',
+        thrownRange: 20,
         properties: ['finesse', 'light'],
       },
+      effects: [
+        {
+          key: 'dagger-warmth',
+          name: 'Dagger Warmth',
+          baseValue: 0,
+          rollModifiers: [{ scope: 'ability_check', kind: 'flat', amount: 1 }],
+        },
+      ],
       damageModifiers: [{ damageType: 'fire', relation: 'resistant', conditionsNote: 'while attuned' }],
+    },
+    {
+      key: 'longsword',
+      name: 'Longsword',
+      weight: 3,
+      costCp: 1500,
+      requiresAttunement: false,
+      weapon: {
+        category: 'martial_melee',
+        damageDice: '1d8',
+        damageType: 'slashing',
+        masteryProperty: 'sap',
+        versatileDice: '1d10',
+        attackBonus: 1,
+        damageBonus: 1,
+        properties: ['versatile'],
+      },
+    },
+    {
+      key: 'shortbow',
+      name: 'Shortbow',
+      weight: 2,
+      costCp: 2500,
+      requiresAttunement: false,
+      weapon: {
+        category: 'simple_ranged',
+        damageDice: '1d6',
+        damageType: 'piercing',
+        masteryProperty: 'vex',
+        ammunition: 'arrow',
+        properties: ['two_handed'],
+      },
     },
     { key: 'traveler-pack', name: "Traveler's Pack", weight: 5, costCp: 400, requiresAttunement: false },
   ],
@@ -345,14 +401,18 @@ INSERT INTO effect (source_id, slug, name, base_value) VALUES
   ((SELECT id FROM source WHERE slug = 'my-homebrew'), 'alert-initiative', 'Alert (initiative)', 0),
   ((SELECT id FROM source WHERE slug = 'my-homebrew'), 'ember-brand-fire', 'Ember Brand (fire)', 0),
   ((SELECT id FROM source WHERE slug = 'my-homebrew'), 'ancestral-boon', 'Ancestral Boon', 0),
-  ((SELECT id FROM source WHERE slug = 'my-homebrew'), 'second-wind-heal', 'Second Wind (heal)', 1);
+  ((SELECT id FROM source WHERE slug = 'my-homebrew'), 'second-wind-heal', 'Second Wind (heal)', 1),
+  ((SELECT id FROM source WHERE slug = 'my-homebrew'), 'starfall-glow', 'Starfall Glow', 0),
+  ((SELECT id FROM source WHERE slug = 'my-homebrew'), 'dagger-warmth', 'Dagger Warmth', 0);
 
 INSERT INTO effect_roll_modifier (effect_id, scope_id, kind, amount, dice, damage_type_id, trigger_text) VALUES
   ((SELECT id FROM effect WHERE slug = 'alert-initiative'),
    (SELECT id FROM roll_scope WHERE code = 'initiative'), 'advantage', 0, NULL, NULL, NULL),
   ((SELECT id FROM effect WHERE slug = 'ember-brand-fire'),
    (SELECT id FROM roll_scope WHERE code = 'weapon_damage'), 'dice', 0, '1d6',
-   (SELECT id FROM damage_type WHERE slug = 'fire'), 'once per turn when you hit with a weapon');
+   (SELECT id FROM damage_type WHERE slug = 'fire'), 'once per turn when you hit with a weapon'),
+  ((SELECT id FROM effect WHERE slug = 'dagger-warmth'),
+   (SELECT id FROM roll_scope WHERE code = 'ability_check'), 'flat', 1, NULL, NULL, NULL);
 
 INSERT INTO effect_modifier (effect_id, ability_id, amount, max_score, max_delta, sets_to_personal_max) VALUES
   ((SELECT id FROM effect WHERE slug = 'ancestral-boon'), (SELECT id FROM ability WHERE code = 'CON'), 0, 25, 2, 0),
@@ -470,19 +530,43 @@ INSERT INTO spell_damage_type (spell_id, damage_type_id, selection, delivery) VA
    'choice', 'cast');
 
 INSERT INTO item (source_id, slug, name, weight, cost_cp, description, requires_attunement) VALUES
+  ((SELECT id FROM source WHERE slug = 'my-homebrew'), 'arrow', 'Arrow', 0.05, 1, NULL, 0),
+  ((SELECT id FROM source WHERE slug = 'my-homebrew'), 'chain-shirt', 'Chain Shirt', 20, 5000, NULL, 0),
   ((SELECT id FROM source WHERE slug = 'my-homebrew'), 'ember-dagger', 'Ember Dagger', 1, 500,
    'A blade that never cools.', 1),
+  ((SELECT id FROM source WHERE slug = 'my-homebrew'), 'longsword', 'Longsword', 3, 1500, NULL, 0),
+  ((SELECT id FROM source WHERE slug = 'my-homebrew'), 'shortbow', 'Shortbow', 2, 2500, NULL, 0),
   ((SELECT id FROM source WHERE slug = 'my-homebrew'), 'traveler-pack', 'Traveler''s Pack', 5, 400, NULL, 0);
 
-INSERT INTO weapon (item_id, category_id, damage_dice, damage_type_id, mastery_property_id) VALUES
+INSERT INTO ammunition (item_id) VALUES
+  ((SELECT id FROM item WHERE slug = 'arrow'));
+
+INSERT INTO armour (item_id, armour_type, base_ac, max_dex_bonus, stealth_disadvantage) VALUES
+  ((SELECT id FROM item WHERE slug = 'chain-shirt'), 'medium', 13, 2, 0);
+
+INSERT INTO weapon
+  (item_id, category_id, damage_dice, damage_type_id, versatile_dice, attack_bonus,
+   damage_bonus, thrown_range, ammunition_id, mastery_property_id)
+VALUES
   ((SELECT id FROM item WHERE slug = 'ember-dagger'),
    (SELECT id FROM weapon_category WHERE code = 'simple_melee'), '1d4',
-   (SELECT id FROM damage_type WHERE slug = 'piercing'),
-   (SELECT id FROM mastery_property WHERE code = 'nick'));
+   (SELECT id FROM damage_type WHERE slug = 'piercing'), NULL, 0, 0, 20, NULL,
+   (SELECT id FROM mastery_property WHERE code = 'nick')),
+  ((SELECT id FROM item WHERE slug = 'longsword'),
+   (SELECT id FROM weapon_category WHERE code = 'martial_melee'), '1d8',
+   (SELECT id FROM damage_type WHERE slug = 'slashing'), '1d10', 1, 1, NULL, NULL,
+   (SELECT id FROM mastery_property WHERE code = 'sap')),
+  ((SELECT id FROM item WHERE slug = 'shortbow'),
+   (SELECT id FROM weapon_category WHERE code = 'simple_ranged'), '1d6',
+   (SELECT id FROM damage_type WHERE slug = 'piercing'), NULL, 0, 0, NULL,
+   (SELECT item_id FROM ammunition WHERE item_id = (SELECT id FROM item WHERE slug = 'arrow')),
+   (SELECT id FROM mastery_property WHERE code = 'vex'));
 
 INSERT INTO weapon_property_map (item_id, property_id) VALUES
   ((SELECT id FROM item WHERE slug = 'ember-dagger'), (SELECT id FROM weapon_property WHERE code = 'finesse')),
-  ((SELECT id FROM item WHERE slug = 'ember-dagger'), (SELECT id FROM weapon_property WHERE code = 'light'));
+  ((SELECT id FROM item WHERE slug = 'ember-dagger'), (SELECT id FROM weapon_property WHERE code = 'light')),
+  ((SELECT id FROM item WHERE slug = 'longsword'), (SELECT id FROM weapon_property WHERE code = 'versatile')),
+  ((SELECT id FROM item WHERE slug = 'shortbow'), (SELECT id FROM weapon_property WHERE code = 'two_handed'));
 
 INSERT INTO damage_modifier (damage_type_id, relation) VALUES
   ((SELECT id FROM damage_type WHERE slug = 'fire'), 'resistant');
@@ -492,6 +576,12 @@ INSERT INTO item_damage_modifier (item_id, damage_modifier_id, conditions_note) 
    (SELECT id FROM damage_modifier
      WHERE damage_type_id = (SELECT id FROM damage_type WHERE slug = 'fire') AND relation = 'resistant'),
    'while attuned');
+
+INSERT INTO item_effect (item_id, effect_id) VALUES
+  ((SELECT id FROM item WHERE slug = 'ember-dagger'), (SELECT id FROM effect WHERE slug = 'dagger-warmth'));
+
+INSERT INTO spell_effect (spell_id, effect_id) VALUES
+  ((SELECT id FROM spell WHERE slug = 'starfall'), (SELECT id FROM effect WHERE slug = 'starfall-glow'));
 `;
 
 /** Only the other pack the fixture references, so an import has someone to

@@ -372,6 +372,14 @@ function collectSpell(references: ReferenceCollector, spell: PackSpell, index: n
       `spells[${index}].damageTypes[${damageIndex}].damageType`,
     );
   }
+  for (const [effectIndex, effect] of (spell.effects ?? []).entries()) {
+    collectEffect(
+      references,
+      effect,
+      `spell "${spell.key}"`,
+      `spells[${index}].effects[${effectIndex}]`,
+    );
+  }
 }
 
 function collectItem(references: ReferenceCollector, item: PackItem, index: number): void {
@@ -385,6 +393,9 @@ function collectItem(references: ReferenceCollector, item: PackItem, index: numb
       heldBy,
       `${atPath}.weapon.damageType`,
     );
+  }
+  for (const [effectIndex, effect] of (item.effects ?? []).entries()) {
+    collectEffect(references, effect, heldBy, `${atPath}.effects[${effectIndex}]`);
   }
   collectDamageModifiers(references, heldBy, `${atPath}.damageModifiers`, item.damageModifiers);
 }
@@ -522,9 +533,15 @@ export function declaredKeys(file: PackFile): Map<KeyedTable, Set<string>> {
     add('feat', entry.key);
     for (const effect of entry.effects ?? []) add('effect', effect.key);
   }
-  for (const entry of file.spells ?? []) add('spell', entry.key);
+  for (const entry of file.spells ?? []) {
+    add('spell', entry.key);
+    for (const effect of entry.effects ?? []) add('effect', effect.key);
+  }
   for (const entry of file.effects ?? []) add('effect', entry.key);
-  for (const entry of file.items ?? []) add('item', entry.key);
+  for (const entry of file.items ?? []) {
+    add('item', entry.key);
+    for (const effect of entry.effects ?? []) add('effect', effect.key);
+  }
 
   return keys;
 }
