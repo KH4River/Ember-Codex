@@ -248,6 +248,7 @@ export interface PackFeature {
   spells?: Ref[];
   grantedSpells?: PackGrantedSpell[];
   effects?: PackEffect[];
+  damageModifiers?: PackDamageModifierRef[];
 }
 
 // ---- Feats ----
@@ -338,6 +339,7 @@ export interface PackSpell {
   description?: string;
   damageTypes?: PackSpellDamageType[];
   effects?: PackEffect[];
+  damageModifiers?: PackDamageModifierRef[];
 }
 
 export interface PackSpellDamageType {

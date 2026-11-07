@@ -56,6 +56,16 @@ const EFFECT_JUNCTIONS = {
 
 type EffectJunction = keyof typeof EFFECT_JUNCTIONS;
 
+/** The junction that reaches a damage modifier through the content carrying
+ *  it. The modifier itself is a `(damage type, relation)` pair. */
+const DAMAGE_MODIFIER_JUNCTIONS = {
+  feature_damage_modifier: 'feature_id',
+  item_damage_modifier: 'item_id',
+  spell_damage_modifier: 'spell_id',
+} as const;
+
+type DamageModifierJunction = keyof typeof DAMAGE_MODIFIER_JUNCTIONS;
+
 /** Which of the five owner columns a feature hangs off. */
 type FeatureOwner = 'class_id' | 'subclass_id' | 'species_id' | 'variant_id' | 'background_id';
 
@@ -255,6 +265,7 @@ async function ownerFeatures(
       spells: orAbsent(await featureSpells(pack, row.id)),
       grantedSpells: orAbsent(await grantedSpells(pack, row.id)),
       effects: orAbsent(await junctionEffects(pack, 'feature_effect', row.id)),
+      damageModifiers: orAbsent(await damageModifiers(pack, 'feature_damage_modifier', row.id)),
     });
   }
   return features;
@@ -819,6 +830,7 @@ async function spells(pack: Pack): Promise<PackSpell[]> {
       description: orUndefined(row.description),
       damageTypes: orAbsent(await spellDamageTypes(pack, row.id)),
       effects: orAbsent(await junctionEffects(pack, 'spell_effect', row.id)),
+      damageModifiers: orAbsent(await damageModifiers(pack, 'spell_damage_modifier', row.id)),
     });
   }
   return result;
@@ -876,7 +888,7 @@ async function items(pack: Pack): Promise<PackItem[]> {
       weapon: await weapon(pack, row),
       armour: await armour(pack, row),
       effects: orAbsent(await junctionEffects(pack, 'item_effect', row.id)),
-      damageModifiers: orAbsent(await itemDamageModifiers(pack, row.id)),
+      damageModifiers: orAbsent(await damageModifiers(pack, 'item_damage_modifier', row.id)),
     };
     if (row.is_ammunition === 1) item.ammunition = true;
     result.push(item);
@@ -960,19 +972,24 @@ async function armour(pack: Pack, item: { id: number }): Promise<PackArmour | un
   };
 }
 
-async function itemDamageModifiers(pack: Pack, itemId: number): Promise<PackDamageModifierRef[]> {
+async function damageModifiers(
+  pack: Pack,
+  junction: DamageModifierJunction,
+  parentId: number,
+): Promise<PackDamageModifierRef[]> {
+  const column = DAMAGE_MODIFIER_JUNCTIONS[junction];
   const rows = await pack.port.all<{
     damage_type: string;
     relation: PackDamageModifierRef['relation'];
     conditions_note: string | null;
   }>(
-    `SELECT dt.slug AS damage_type, dm.relation, idm.conditions_note
-       FROM item_damage_modifier idm
-       JOIN damage_modifier dm ON dm.id = idm.damage_modifier_id
+    `SELECT dt.slug AS damage_type, dm.relation, j.conditions_note
+       FROM ${junction} j
+       JOIN damage_modifier dm ON dm.id = j.damage_modifier_id
        JOIN damage_type dt ON dt.id = dm.damage_type_id
-      WHERE idm.item_id = ?
+      WHERE j.${column} = ?
       ORDER BY dt.slug, dm.relation`,
-    [itemId],
+    [parentId],
   );
   return rows.map((row) => ({
     damageType: row.damage_type,

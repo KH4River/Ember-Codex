@@ -250,6 +250,38 @@ describe('pack validation', () => {
       ]);
     });
 
+    it('checks the damage type inside a feature damage modifier', async () => {
+      const file = {
+        ...aPackFile(),
+        classes: [
+          aClass({
+            features: [
+              {
+                key: 'ember-skin',
+                name: 'Ember Skin',
+                description: 'x',
+                level: null,
+                damageModifiers: [{ damageType: 'fireblet', relation: 'resistant' }],
+              },
+            ],
+          }),
+        ],
+      };
+      expect(await problemsFoundIn(file)).toEqual([
+        'fireblet is referenced by feature "ember-skin" at classes[0].features[0].damageModifiers[0].damageType but is not a known damage type',
+      ]);
+    });
+
+    it('checks the damage type inside a spell damage modifier', async () => {
+      const file = {
+        ...aPackFile(),
+        spells: [aSpell({ damageModifiers: [{ damageType: 'fireblet', relation: 'resistant' }] })],
+      };
+      expect(await problemsFoundIn(file)).toEqual([
+        'fireblet is referenced by spell "searing-smite" at spells[0].damageModifiers[0].damageType but is not a known damage type',
+      ]);
+    });
+
     it('reports every dangling reference, not just the first', async () => {
       const file = {
         ...aPackFile(),

@@ -3,6 +3,7 @@ import type {
   PackArmour,
   PackBackground,
   PackClass,
+  PackDamageModifierRef,
   PackEffect,
   PackFeat,
   PackFeature,
@@ -972,6 +973,8 @@ async function writeFeatureSatellites(
       ids.effects.get(effect.key)!,
     ]);
   }
+
+  await writeDamageModifiers(port, 'feature_damage_modifier', featureId, feature.damageModifiers);
 }
 
 async function writeSpellSatellites(
@@ -997,6 +1000,8 @@ async function writeSpellSatellites(
       ids.effects.get(effect.key)!,
     ]);
   }
+
+  await writeDamageModifiers(port, 'spell_damage_modifier', spellId, spell.damageModifiers);
 }
 
 async function writeEffectSatellites(
@@ -1094,6 +1099,14 @@ async function writeAbilityModifiers(
   }
 }
 
+const DAMAGE_MODIFIER_JUNCTIONS = {
+  feature_damage_modifier: 'feature_id',
+  item_damage_modifier: 'item_id',
+  spell_damage_modifier: 'spell_id',
+} as const;
+
+type DamageModifierJunction = keyof typeof DAMAGE_MODIFIER_JUNCTIONS;
+
 async function findOrCreateDamageModifier(
   port: DatabasePort,
   damageTypeId: number,
@@ -1115,6 +1128,28 @@ async function findOrCreateDamageModifier(
       [damageTypeId, relation],
     )
   )!.id;
+}
+
+async function writeDamageModifiers(
+  port: DatabasePort,
+  junction: DamageModifierJunction,
+  parentId: number,
+  modifiers: readonly PackDamageModifierRef[] | undefined,
+): Promise<void> {
+  const column = DAMAGE_MODIFIER_JUNCTIONS[junction];
+  await port.run(`DELETE FROM ${junction} WHERE ${column} = ?`, [parentId]);
+  for (const modifier of modifiers ?? []) {
+    const damageTypeId = await requiredCode(port, 'damage_type', modifier.damageType);
+    const damageModifierId = await findOrCreateDamageModifier(
+      port,
+      damageTypeId,
+      modifier.relation,
+    );
+    await port.run(
+      `INSERT INTO ${junction} (${column}, damage_modifier_id, conditions_note) VALUES (?, ?, ?)`,
+      [parentId, damageModifierId, modifier.conditionsNote ?? null],
+    );
+  }
 }
 
 async function writeWeapon(
@@ -1274,19 +1309,7 @@ async function writeItemSatellites(
     ]);
   }
 
-  await port.run('DELETE FROM item_damage_modifier WHERE item_id = ?', [itemId]);
-  for (const modifier of item.damageModifiers ?? []) {
-    const damageTypeId = await requiredCode(port, 'damage_type', modifier.damageType);
-    const damageModifierId = await findOrCreateDamageModifier(
-      port,
-      damageTypeId,
-      modifier.relation,
-    );
-    await port.run(
-      'INSERT INTO item_damage_modifier (item_id, damage_modifier_id, conditions_note) VALUES (?, ?, ?)',
-      [itemId, damageModifierId, modifier.conditionsNote ?? null],
-    );
-  }
+  await writeDamageModifiers(port, 'item_damage_modifier', itemId, item.damageModifiers);
 }
 
 async function writeSatellites(

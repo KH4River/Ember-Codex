@@ -37,6 +37,13 @@ const fighter: PackClass = {
           },
         },
       ],
+      damageModifiers: [
+        {
+          damageType: 'fire',
+          relation: 'resistant',
+          conditionsNote: 'while the feature is active',
+        },
+      ],
     },
   ],
   subclasses: [
@@ -225,6 +232,13 @@ export const packFixture: PackFile = {
       description: 'A falling star burns where it lands.',
       damageTypes: [{ damageType: 'fire', selection: 'choice', delivery: 'cast' }],
       effects: [{ key: 'starfall-glow', name: 'Starfall Glow', baseValue: 0 }],
+      damageModifiers: [
+        {
+          damageType: 'fire',
+          relation: 'resistant',
+          conditionsNote: 'while standing in the embers',
+        },
+      ],
     },
     {
       key: 'word-of-light',
@@ -576,6 +590,18 @@ INSERT INTO item_damage_modifier (item_id, damage_modifier_id, conditions_note) 
    (SELECT id FROM damage_modifier
      WHERE damage_type_id = (SELECT id FROM damage_type WHERE slug = 'fire') AND relation = 'resistant'),
    'while attuned');
+
+INSERT INTO feature_damage_modifier (feature_id, damage_modifier_id, conditions_note) VALUES
+  ((SELECT id FROM feature WHERE slug = 'second-wind'),
+   (SELECT id FROM damage_modifier
+     WHERE damage_type_id = (SELECT id FROM damage_type WHERE slug = 'fire') AND relation = 'resistant'),
+   'while the feature is active');
+
+INSERT INTO spell_damage_modifier (spell_id, damage_modifier_id, conditions_note) VALUES
+  ((SELECT id FROM spell WHERE slug = 'starfall'),
+   (SELECT id FROM damage_modifier
+     WHERE damage_type_id = (SELECT id FROM damage_type WHERE slug = 'fire') AND relation = 'resistant'),
+   'while standing in the embers');
 
 INSERT INTO item_effect (item_id, effect_id) VALUES
   ((SELECT id FROM item WHERE slug = 'ember-dagger'), (SELECT id FROM effect WHERE slug = 'dagger-warmth'));

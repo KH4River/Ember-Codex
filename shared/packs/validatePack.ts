@@ -380,6 +380,12 @@ function collectSpell(references: ReferenceCollector, spell: PackSpell, index: n
       `spells[${index}].effects[${effectIndex}]`,
     );
   }
+  collectDamageModifiers(
+    references,
+    `spell "${spell.key}"`,
+    `spells[${index}].damageModifiers`,
+    spell.damageModifiers,
+  );
 }
 
 function collectItem(references: ReferenceCollector, item: PackItem, index: number): void {
@@ -422,6 +428,12 @@ function collectFeatures(
     for (const [effectIndex, effect] of (feature.effects ?? []).entries()) {
       collectEffect(references, effect, heldBy, `${featurePath}.effects[${effectIndex}]`);
     }
+    collectDamageModifiers(
+      references,
+      heldBy,
+      `${featurePath}.damageModifiers`,
+      feature.damageModifiers,
+    );
   }
 }
 
