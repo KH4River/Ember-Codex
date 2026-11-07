@@ -1,7 +1,9 @@
 // Validates 001_initial.sql against a real SQLite engine (node:sqlite).
 // Run: node tools/verify-migration.mjs
 import { DatabaseSync } from 'node:sqlite';
-import { readFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { existsSync, readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 
 import { readMigrationSources, sourceDigest } from './lib/migration-source.mjs';
 
@@ -31,7 +33,6 @@ const count = (table, where = '', ...p) =>
 /** The id of a content row by slug: the lookup the pack importer makes. */
 const idOf = (table, slug) => q(`SELECT id FROM ${table} WHERE slug = ?`, slug).id;
 
-/** Column names of a table. */
 const columnsOf = (table) => db.prepare(`PRAGMA table_info('${table}')`).all().map((c) => c.name);
 
 // ---- Asserting ----
@@ -41,7 +42,6 @@ const expect = (label, actual, wanted) =>
     ? ok(label)
     : fail(`${label} -- got ${JSON.stringify(actual)}, wanted ${JSON.stringify(wanted)}`);
 
-/** The schema should accept this statement. */
 const accepts = (label, fn) => {
   try {
     fn();
@@ -51,7 +51,6 @@ const accepts = (label, fn) => {
   }
 };
 
-/** The schema should refuse this statement. */
 const expectFail = (label, fn) => {
   try {
     fn();
@@ -91,15 +90,18 @@ if (!hashLine) {
   ok('migrations.generated.ts matches shared/db/migrations/*.sql');
 }
 
-// ---- The committed diagram must describe the schema that exists ----
-// docs/schema/schema.dbml is generated, and a stale diagram is worse than no
-// diagram: it is the thing a reader trusts about the delete policy. Same drift
-// the generated TS above has, so it gets the same check over the same digest.
-// Beyond presence, the diagram is checked below for operator correctness: a
-// one-to-one ('-') on columns that are not a unique key, or a mandatory
-// operator on a nullable FK, is exactly the inconsistency dbdiagram warns
-// about, and a stale diagram would keep drawing it as true.
-const diagram = readFileSync(new URL('../docs/schema/schema.dbml', import.meta.url), 'utf8');
+// ---- The generated diagram must describe the schema that exists ----
+// docs/schema/schema.dbml is generated and .gitignored, so generate it when
+// missing rather than failing with ENOENT. A stale diagram is worse than none:
+// it is what a reader trusts about the delete policy. The checks below also
+// verify that each Ref operator matches the schema's key and nullability.
+const diagramUrl = new URL('../docs/schema/schema.dbml', import.meta.url);
+if (!existsSync(diagramUrl)) {
+  execFileSync(process.execPath, [fileURLToPath(new URL('./generate-schema-diagram.mjs', import.meta.url))], {
+    stdio: 'ignore',
+  });
+}
+const diagram = readFileSync(diagramUrl, 'utf8');
 const diagramHash = /^\/\/ source-hash: ([0-9a-f]{64})$/m.exec(diagram);
 if (!diagramHash) {
   fail('schema.dbml has no source-hash header');
@@ -120,17 +122,10 @@ for (const [i, { name, sql }] of sources.entries()) {
 }
 
 // ---- Migrations must survive the Capacitor plugin's statement split ----
-// On Android the migration does NOT run as a script. The plugin splits it on a
-// literal ";\n" (UtilsSQLite.getStatementsArray), then strips every line comment
-// from each chunk. A chunk that held nothing but comments is left empty, and
-// the plugin hands that empty string to execSQL, which prepares no statement:
-// "API called with NULL prepared statement", SQLITE_MISUSE, surfaced to the app
-// as the useless "Execute: not an error (code 0)". A comment line ending in ";"
-// is what creates such a chunk, by splitting inside a comment block.
-//
-// Nothing else here can see this. node:sqlite applies the file as one script
-// and does not care where the semicolons fall, so every other gate passes while
-// the app cannot open a database on a device.
+// On Android the plugin splits the script on a literal ";\n" and strips line
+// comments from each chunk. A comment line ending in ";" can leave an empty
+// chunk that execSQL cannot prepare, so the app fails to open its database
+// while every other gate passes.
 let commentSemicolons = 0;
 for (const { name, sql } of sources) {
   sql.split('\n').forEach((line, i) => {
@@ -200,17 +195,10 @@ for (const [t, step] of Object.entries(IMPORT_STEP)) {
 }
 if (backwards === 0) expect('no pack table references one the importer reaches later', backwards, 0);
 
-// The digest above proves the file was generated from the schema that exists.
-// It does not prove the generator wrote all of it: a truncated emit still
-// matches its own header. Count what the schema says must be there against what
-// the file has, now that the FK walk above has counted the keys.
-//
-// CHECK bodies are counted by a scan written here rather than shared with the
-// generator, on purpose. A digest has to be the same algorithm in both places or
-// the comparison means nothing; this is an independent re-derivation, which is
-// the value of checking. It balances parentheses because a body can nest --
-// length(attribution) > 0 -- and steps over quoted literals so a paren inside a
-// string cannot end the scan early.
+// The digest proves the file came from the schema, not that the generator wrote
+// all of it. Count what the schema says must be there against what the file has.
+// CHECK bodies are counted by an independent scan, so the two implementations
+// have to agree.
 let checksInDdl = 0;
 for (const { sql: ddlText } of db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND sql IS NOT NULL").all()) {
   for (const m of ddlText.matchAll(/check\s*\(/gi)) {
@@ -244,12 +232,9 @@ if (repeated.length === 0) ok('schema.dbml names every table exactly once');
 else fail(`schema.dbml repeats: ${[...new Set(repeated)].join(', ')}`);
 
 // ---- Every Ref: operator must agree with the schema's own facts ----
-// dbdiagram warns whenever an operator contradicts the columns it joins: a
-// one-to-one ('-') on a column set that is not a unique key, or a mandatory
-// operator on a nullable FK. The generator derives the operator from these
-// same pragmas, so this check re-derives it independently rather than
-// importing the generator's helper: two implementations forced to agree are
-// worth more than one used twice, the same reasoning as the CHECK scan above.
+// dbdiagram warns when an operator contradicts the columns: '-' needs a unique
+// key, a non-'?' operator needs non-null columns. This re-derives the operator
+// independently rather than importing the generator's helper.
 const refOps = new Map([
   ['-', { key: true, notNull: true }],
   ['-?', { key: true, notNull: false }],
@@ -345,13 +330,16 @@ const elf = idOf('species', 'elf');
 ins(`INSERT INTO background (source_id, slug, name) VALUES (?, 'wayfarer', 'Wayfarer')`, src);
 const bg = idOf('background', 'wayfarer');
 const uuid = 'x'.repeat(8) + '-1111-1111-1111-' + 'x'.repeat(12);
-accepts('negative hp_current (-5) accepted (2024 allows HP below zero)', () =>
+accepts('hp_current 0 accepted (a dying character)', () =>
   ins(
     `INSERT INTO player_character (uuid, name, species_id, background_id, hp_max, hp_current)
-     VALUES (?, 'Test', ?, ?, 20, -5)`,
+     VALUES (?, 'Test', ?, ?, 20, 0)`,
     uuid, elf, bg,
   ));
 const pc = q('SELECT id FROM player_character').id;
+
+expectFail('negative hp_current rejected', () =>
+  ins('UPDATE player_character SET hp_current = -1 WHERE id = ?', pc));
 
 expectFail('hp_current above hp_max rejected', () =>
   ins('UPDATE player_character SET hp_current = 999 WHERE id = ?', pc));
@@ -374,16 +362,13 @@ ins(`INSERT INTO character_grant_pick (character_id, class_id, class_level, gran
 accepts('an asi_or_feat pick with no feat accepts ASI bonuses', () =>
   ins(`INSERT INTO character_asi_bonus (character_id, class_id, class_level, pick_no, ability_id, bonus) VALUES (?, ?, 4, 1, 1, 2)`, pc, fighter));
 
-// A pick holding a feat must reject ASI bonuses.
 ins(`INSERT INTO character_grant_pick (character_id, class_id, class_level, grant_kind, feat_id) VALUES (?, ?, 6, 'asi_or_feat', ?)`, pc, fighter, alert);
 expectFail('a slot holding a feat rejects ASI bonuses', () =>
   ins(`INSERT INTO character_asi_bonus (character_id, class_id, class_level, pick_no, ability_id, bonus) VALUES (?, ?, 6, 1, 1, 2)`, pc, fighter));
 
-// No pick at a class level with no grant slot.
 expectFail('no pick possible at a class level with no grant slot', () =>
   ins(`INSERT INTO character_grant_pick (character_id, class_id, class_level, grant_kind, feat_id) VALUES (?, ?, 7, 'asi_or_feat', ?)`, pc, fighter, gwf));
 
-// A single pick cannot carry both a feat and an item.
 expectFail('a single pick cannot carry both a feat and an item', () =>
   ins(`INSERT INTO character_grant_pick (character_id, class_id, class_level, grant_kind, pick_no, feat_id, item_id) VALUES (?, ?, 4, 'asi_or_feat', 2, ?, ?)`, pc, fighter, alert, 1));
 
@@ -406,45 +391,38 @@ expect('weapon_mastery and fighting_style picks recorded',
   `${count('character_grant_pick', 'item_id = ?', sword)} mastery, ${count('character_grant_pick', 'feat_id = ?', gwf)} fighting style`,
   '1 mastery, 1 fighting style');
 
-// "medium" must no longer be accepted as a weapon property (armour-only).
 expectFail('medium rejected as a weapon property', () =>
   ins(`INSERT INTO weapon_property (code) VALUES ('medium')`));
 
-// ---- Species-granted cantrips are derived, so class_id can stay NOT NULL ----
+// ---- Species-granted spells are derived, so class_id can stay NOT NULL ----
 ins(`INSERT INTO species_variant (source_id, slug, species_id, variant_kind, name) VALUES (?, 'high-elf', ?, 'lineage', 'High Elf')`, src, elf);
 const highElf = idOf('species_variant', 'high-elf');
-ins(`INSERT INTO spell (source_id, slug, name, spell_level, school, casting_time, spell_range, duration) VALUES (?, 'speak-with-animals', 'Speak With Animals', 0, 'divination', '1 action', 'Self', '10 min')`, src);
+ins(`INSERT INTO spell (source_id, slug, name, spell_level, school, casting_time, spell_range, duration) VALUES (?, 'speak-with-animals', 'Speak With Animals', 1, 'divination', '1 action', 'Self', '10 min')`, src);
 const swa = idOf('spell', 'speak-with-animals');
 ins(`INSERT INTO spell (source_id, slug, name, spell_level, school, casting_time, spell_range, duration) VALUES (?, 'prestidigitation', 'Prestidigitation', 0, 'transmutation', '1 action', 'Self', '1 hour')`, src);
 const prest = idOf('spell', 'prestidigitation');
 ins(`INSERT INTO feature (source_id, slug, name, description, variant_id) VALUES (?, 'speak-with-small-beasts', 'Speak With Small Beasts', 'x', ?)`, src, highElf);
-const gnomeFeat = idOf('feature', 'speak-with-small-beasts');
-ins(`INSERT INTO granted_spell (feature_id, spell_id, grant_level, replaceable) VALUES (?, ?, NULL, 0)`, gnomeFeat, swa);
-ins(`INSERT INTO granted_spell (feature_id, spell_id, grant_level, replaceable) VALUES (?, ?, NULL, 1)`, gnomeFeat, prest);
+const lineageFeat = idOf('feature', 'speak-with-small-beasts');
+ins(`INSERT INTO granted_spell (feature_id, spell_id, grant_level, replaceable) VALUES (?, ?, NULL, 0)`, lineageFeat, swa);
+ins(`INSERT INTO granted_spell (feature_id, spell_id, grant_level, replaceable) VALUES (?, ?, NULL, 1)`, lineageFeat, prest);
 
-// A Gnome with no class levels still has the cantrip, because the row comes
-// from a feature. character_cantrip.class_id stays NOT NULL.
-ins(`INSERT INTO feature (source_id, slug, name, description, species_id) VALUES (?, 'no-class-cantrip', 'Species Cantrip', 'x', ?)`, src, elf);
-const speciesFeat = idOf('feature', 'no-class-cantrip');
+ins(`INSERT INTO feature (source_id, slug, name, description, species_id) VALUES (?, 'no-class-spell', 'Species Spell', 'x', ?)`, src, elf);
+const speciesFeat = idOf('feature', 'no-class-spell');
 ins(`INSERT INTO granted_spell (feature_id, spell_id, grant_level, replaceable) VALUES (?, ?, NULL, 0)`, speciesFeat, swa);
 
-// 3 rows: two on the lineage feature (one replaceable) plus one on the
-// species feature.
-expect('species-granted cantrips derived from features, no class row needed',
+expect('species-granted spells derived from features, no class row needed',
   q(`SELECT COUNT(*) AS n FROM granted_spell g
       JOIN feature f ON f.id = g.feature_id
       WHERE f.species_id IS NOT NULL OR f.variant_id IS NOT NULL`).n,
   3);
 
-// The High Elf cantrip is replaceable, so a swap-in can be recorded.
-ins(`INSERT INTO character_granted_spell (character_id, feature_id, spell_id) VALUES (?, ?, ?)`, pc, gnomeFeat, prest);
+ins(`INSERT INTO character_granted_spell (character_id, feature_id, spell_id) VALUES (?, ?, ?)`, pc, lineageFeat, prest);
 expect('replaceable species cantrip swap recorded',
   q('SELECT spell_id FROM character_granted_spell WHERE character_id = ?', pc).spell_id,
   prest);
 
-// character_cantrip must still require a class (it is for class cantrips).
 expectFail('character_cantrip requires a class id', () =>
-  ins('INSERT INTO character_cantrip (character_id, spell_id, class_id) VALUES (?, ?, NULL)', pc, swa));
+  ins('INSERT INTO character_cantrip (character_id, spell_id, class_id) VALUES (?, ?, NULL)', pc, prest));
 
 // ---- Damage types ----
 expect('all 13 damage types seeded', count('damage_type'), 13);
@@ -491,7 +469,6 @@ ins(`DELETE FROM skill WHERE slug = 'acrobatics'`);
 const fire = idOf('damage_type', 'fire');
 const cold = idOf('damage_type', 'cold');
 const poison = idOf('damage_type', 'poison');
-const necrotic = idOf('damage_type', 'necrotic');
 
 // ---- Spell damage: fixed vs caster choice, and delivery ----
 ins(`INSERT INTO spell (source_id, slug, name, spell_level, school, casting_time, spell_range, duration) VALUES (?, 'firebolt', 'Firebolt', 0, 'evocation', '1 action', 'Self', 'Instant')`, src);
@@ -500,7 +477,6 @@ ins(`INSERT INTO spell_damage_type (spell_id, damage_type_id, selection, deliver
 expect('Firebolt recorded as fixed fire, delivered on cast',
   q('SELECT selection, delivery FROM spell_damage_type WHERE spell_id = ?', firebolt).selection, 'fixed');
 
-// Chromatic Orb: the caster picks, so two 'choice' rows.
 ins(`INSERT INTO spell (source_id, slug, name, spell_level, school, casting_time, spell_range, duration) VALUES (?, 'chromatic-orb', 'Chromatic Orb', 1, 'evocation', '1 action', '90 feet', 'Instant')`, src);
 const orb = idOf('spell', 'chromatic-orb');
 ins(`INSERT INTO spell_damage_type (spell_id, damage_type_id, selection, delivery) VALUES (?, ?, 'choice', 'cast')`, orb, fire);
@@ -512,31 +488,26 @@ expect('caster-choice damage recorded as two choice rows',
 ins(`INSERT INTO spell (source_id, slug, name, spell_level, school, casting_time, spell_range, duration) VALUES (?, 'cloudkill', 'Cloudkill', 5, 'conjuration', '1 action', '120 feet', '1 hour')`, src);
 const cloudkill = idOf('spell', 'cloudkill');
 accepts('conditional (aura) damage shape recorded', () =>
-  ins(`INSERT INTO spell_damage_type (spell_id, damage_type_id, selection, delivery) VALUES (?, ?, 'fixed', 'aura')`, cloudkill, necrotic));
+  ins(`INSERT INTO spell_damage_type (spell_id, damage_type_id, selection, delivery) VALUES (?, ?, 'fixed', 'aura')`, cloudkill, poison));
 
 expectFail('invalid delivery rejected', () =>
   ins(`INSERT INTO spell_damage_type (spell_id, damage_type_id, delivery) VALUES (?, ?, 'whenever')`, firebolt, cold));
 
 // ---- Cantrip scaling ----
-ins(`INSERT INTO spell (source_id, slug, name, spell_level, school, casting_time, spell_range, duration) VALUES (?, 'blade-ward', 'Blade Ward', 0, 'transmutation', '1 action', 'Self', '1 round')`, src);
-const bladeWard = idOf('spell', 'blade-ward');
-for (const [lvl, dice] of [[1, '1d4'], [5, '2d4'], [11, '3d4'], [17, '4d4']]) {
-  ins('INSERT INTO cantrip_damage_dice (class_id, spell_id, from_level, dice) VALUES (?, ?, ?, ?)', fighter, bladeWard, lvl, dice);
+for (const [lvl, dice] of [[1, '1d10'], [5, '2d10'], [11, '3d10'], [17, '4d10']]) {
+  ins('INSERT INTO cantrip_damage_dice (class_id, spell_id, from_level, dice) VALUES (?, ?, ?, ?)', fighter, firebolt, lvl, dice);
 }
-expect('cantrip scaling resolves at level 9 to 2d4',
+expect('cantrip scaling resolves at level 9 to 2d10',
   q(`SELECT dice FROM cantrip_damage_dice WHERE class_id = ? AND spell_id = ?
-      AND from_level <= 9 ORDER BY from_level DESC LIMIT 1`, fighter, bladeWard).dice,
-  '2d4');
+      AND from_level <= 9 ORDER BY from_level DESC LIMIT 1`, fighter, firebolt).dice,
+  '2d10');
 expect('cantrip scaling stored as data rows at 1/5/11/17',
-  count('cantrip_damage_dice', 'spell_id = ?', bladeWard), 4);
+  count('cantrip_damage_dice', 'spell_id = ?', firebolt), 4);
 
 // ---- Damage relations ----
-// damage_modifier carries no UNIQUE on (damage_type_id, relation), by design.
-// It is derived content, exported inline on its referrer and never as a
-// standalone entity, so a blind INSERT duplicates it silently on every
-// re-import and the duplicate is semantically identical -- nothing looks
-// wrong. The importer must SELECT before INSERT, and that guard is only
-// load-bearing while the constraint is genuinely absent.
+// damage_modifier has no UNIQUE on (damage_type_id, relation), so a blind
+// re-import would duplicate it silently. The importer must SELECT before INSERT;
+// this pins the absence so that guard is not forgotten.
 ins(`INSERT INTO damage_modifier (damage_type_id, relation) VALUES (?, 'resistant')`, fire);
 ins(`INSERT INTO damage_modifier (damage_type_id, relation) VALUES (?, 'resistant')`, fire);
 expect('damage_modifier has no UNIQUE, so the importer must SELECT before INSERT',
@@ -546,14 +517,13 @@ ins(`DELETE FROM damage_modifier WHERE damage_type_id = ? AND relation = 'resist
 const dm = ins(`INSERT INTO damage_modifier (damage_type_id, relation) VALUES (?, 'resistant')`, fire);
 ins(
   `INSERT INTO feature_damage_modifier (feature_id, damage_modifier_id, conditions_note) VALUES (?, ?, 'only while raging')`,
-  gnomeFeat,
+  lineageFeat,
   Number(dm.lastInsertRowid),
 );
 expect('conditional resistance keeps its conditions_note',
-  q('SELECT conditions_note FROM feature_damage_modifier WHERE feature_id = ?', gnomeFeat).conditions_note,
+  q('SELECT conditions_note FROM feature_damage_modifier WHERE feature_id = ?', lineageFeat).conditions_note,
   'only while raging');
 
-// Character resistances are stored, and a hand-entered one needs no source.
 ins(`INSERT INTO character_damage_modifier (character_id, damage_type_id, relation) VALUES (?, ?, 'resistant')`, pc, poison);
 expect('hand-entered resistance accepted with no provenance owner',
   q('SELECT feature_id FROM character_damage_modifier WHERE character_id = ?', pc).feature_id,
@@ -574,7 +544,7 @@ expect('character_damage_modifier has no polymorphic source_ref/source_kind pair
 expectFail('a resistance cannot claim two provenance owners at once', () =>
   ins(`INSERT INTO character_damage_modifier
          (character_id, damage_type_id, relation, feature_id, item_id)
-       VALUES (?, ?, 'immune', ?, ?)`, pc, cold, gnomeFeat, sword));
+       VALUES (?, ?, 'immune', ?, ?)`, pc, cold, lineageFeat, sword));
 
 // ---- Species variant kinds ----
 expectFail('invalid variant_kind rejected', () =>
@@ -598,7 +568,6 @@ const ud = idOf('effect', 'unarmored-defense');
 accepts('Unarmored Defense = base_value 10 + the linked ability modifier', () =>
   ins(`INSERT INTO effect_modifier (effect_id, ability_id, amount, max_score) VALUES (?, 6, 0, 20)`, ud));
 
-// Background ASI distribution is app-enforced (sum must be 0 or 3).
 const sum = db
   .prepare('SELECT bonus FROM character_background_asi WHERE character_id = ?')
   .all(pc)
@@ -609,11 +578,10 @@ expect('background ASI distribution is app-enforced (sum 0 or 3)', sum === 0 || 
 const initiative = q(`SELECT id FROM roll_scope WHERE code = 'initiative'`).id;
 const saveScope = q(`SELECT id FROM roll_scope WHERE code = 'save'`).id;
 const wpnDamage = q(`SELECT id FROM roll_scope WHERE code = 'weapon_damage'`).id;
-const dcScope = q(`SELECT id FROM roll_scope WHERE code = 'spell_save_dc'`).id;
 
 ins(`INSERT INTO effect (source_id, slug, name, base_value) VALUES (?, 'alert', 'Alert', 0)`, src);
 ins(`INSERT INTO effect (source_id, slug, name, base_value) VALUES (?, 'searing-smite', 'Searing Smite', 0)`, src);
-ins(`INSERT INTO effect (source_id, slug, name, base_value) VALUES (?, 'haste', 'Haste', 0)`, src);
+ins(`INSERT INTO effect (source_id, slug, name, base_value) VALUES (?, 'flat-save-bonus', 'Flat Save Bonus', 0)`, src);
 ins(`INSERT INTO effect (source_id, slug, name, base_value) VALUES (?, 'channel-divinity', 'Channel Divinity', 0)`, src);
 
 // Danger Sense: advantage on DEX saves, so the scope row carries the ability.
@@ -638,12 +606,10 @@ expect('the rider stored its dice, damage type and trigger',
   `${rider.dice} / ${rider.damage_type_id === fire ? 'fire' : rider.damage_type_id} / ${rider.trigger_text ? 'has trigger' : 'NO TRIGGER'}`,
   '+1d6 / fire / has trigger');
 
-// Haste: flat +2 AC, unlimited uses.
-const haste = idOf('effect', 'haste');
-const acScope = q(`SELECT id FROM roll_scope WHERE code = 'damage_taken'`).id;
+const flatSaveEffect = idOf('effect', 'flat-save-bonus');
 accepts('flat modifier plus an unlimited-use recharge recorded', () => {
-  ins(`INSERT INTO effect_roll_modifier (effect_id, scope_id, kind, amount) VALUES (?, ?, 'flat', 2)`, haste, acScope);
-  ins(`INSERT INTO effect_recharge (effect_id, interval, uses_max) VALUES (?, 'long_rest', 0)`, haste);
+  ins(`INSERT INTO effect_roll_modifier (effect_id, scope_id, kind, amount) VALUES (?, ?, 'flat', 2)`, flatSaveEffect, saveScope);
+  ins(`INSERT INTO effect_recharge (effect_id, interval, uses_max) VALUES (?, 'long_rest', 0)`, flatSaveEffect);
 });
 
 expectFail('invalid roll modifier kind rejected', () =>
@@ -683,7 +649,6 @@ expect('short-rest generation tracked separately from long-rest',
   q('SELECT short_rest_generation FROM character_effect_uses WHERE character_id = ? AND effect_id = ?', pc, cd).short_rest_generation,
   0);
 
-// Capability grants.
 const dv = idOf('effect', 'darkvision');
 accepts('darkvision range recorded', () =>
   ins(`INSERT INTO effect_darkvision (effect_id, range_feet) VALUES (?, 120)`, dv));
@@ -725,8 +690,6 @@ expect('spell slot spends carry both rest generations',
   `short=${wlkRow.short_rest_generation} long=${wlkRow.long_rest_generation}`,
   'short=0 long=0');
 
-// A short rest refreshes the Warlock (interval = short_rest) but a
-// long-rest class in the same character is unaffected.
 ins('UPDATE player_character SET short_rest_count = short_rest_count + 1 WHERE id = ?', pc);
 expect('a short rest refreshes Warlock slots by moving the counter only',
   q('SELECT short_rest_generation FROM character_spell_slot_spends WHERE character_id = ? AND class_id = ?', pc, warlock).short_rest_generation,
@@ -777,7 +740,6 @@ expectFail('deleting an in-use pack is refused', () =>
 expect(`deleting an in-use pack is refused; character and all ${rowsBefore} of its rows survive`,
   `${count('player_character')} character, ${subtree(pc)} rows`, `1 character, ${rowsBefore} rows`);
 
-// Deleting a character still cascades to its rows.
 ins(`INSERT INTO class_grant_slot (class_id, class_level, grant_kind, opens) VALUES (?, 8, 'asi_or_feat', 1)`, fighter);
 ins(`DELETE FROM player_character WHERE id = ?`, pc);
 expect('deleting a character cascades to its rows (no orphans)',

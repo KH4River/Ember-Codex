@@ -1,6 +1,6 @@
 # Ember Codex
 
-This is an Ember Codex app built mainly with [Electron](https://electronjs.org) and [Angular](https://angular.dev), with SQLite underneath. It is a character creator for the 2024 D&D ruleset that keeps everything on your own device, so there is no account and nothing to sync: a character is a file that stays where you put it. Content does not ship with the application but arrives separately as importable packs, each of which declares its own licence and attribution.
+This is an Ember Codex app built mainly with [Electron](https://electronjs.org) and [Angular](https://angular.dev), with SQLite underneath. It is a character creator for the 2024 D&D ruleset that keeps everything on your own device, so there is no account and nothing to sync: a character stays on the device where you made it. Content does not ship with the application; it is intended to arrive separately as importable packs, each able to declare its own licence and attribution.
 
 The project is under active development.
 
@@ -55,7 +55,7 @@ npm test
 npm run build
 ```
 
-`verify-migration.mjs` applies the schema to an in-memory database and checks that it holds up: that every table is created, that every foreign key resolves to a real table and column, and that the rules-specific shapes behave such as HP below zero, weapon masteries, ability ceilings and rest generations. It is worth reading, since it doubles as executable documentation of what this project believes.
+`verify-migration.mjs` applies the schema to an in-memory database and checks that it holds up: that every table is created, that every foreign key resolves to a real table and column, and that the rules-specific shapes behave such as HP at zero, weapon masteries, ability ceilings and rest generations. It is worth reading, since it doubles as executable documentation of what this project believes.
 
 None of those three compile `electron/`, so anything touching the main process also needs `npm run build:electron`, since a TypeScript error in `electron/app.ts` would otherwise pass every gate.
 
@@ -69,7 +69,7 @@ As of writing this, all Electron logic lives within the folder `electron/`.
 | `shared/` | Platform-agnostic code imported by both shells: the schema, migrations, repositories and models |
 | `electron/` | Main process only, being window, paths and IPC rather than application logic |
 | `android/` | The generated Android shell |
-| `docs/` | `android-setup.md`, for building and running it |
+| `docs/` | Android setup, and notes on an alternative tool |
 | `tools/` | Verification harnesses, which are not application code |
 
 Because `angular.json` sits inside `angular/`, the npm scripts `cd angular` before calling `ng`, and running `ng` from the repository root fails with a confusing "not available when running the Angular CLI outside a workspace".

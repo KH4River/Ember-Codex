@@ -1,16 +1,8 @@
 /**
- * The one database seam.
- *
- * Two shells implement this interface and nothing else:
- *   - mobile: the Capacitor SQLite plugin,
- *   - desktop: node:sqlite behind Electron IPC.
- *
- * Business SQL never lives in an adapter. Repositories under
- * shared/db/repositories run through this interface, so the same statements
- * execute on every platform and only our own SQL crosses the IPC boundary.
- *
- * Every method is async because two of the three engines (Capacitor, IPC) are
- * async; the node:sqlite adapter wraps its synchronous calls.
+ * One database seam for the two shells: Capacitor SQLite on mobile and
+ * node:sqlite behind Electron IPC on desktop. Business SQL stays in
+ * shared/db/repositories; adapters only carry it. Methods are async because both
+ * shells are; node:sqlite wraps sync calls.
  */
 export interface DatabasePort {
   /**
@@ -21,14 +13,11 @@ export interface DatabasePort {
   open(): Promise<void>;
 
   /**
-   * Run a statement, or a batch of them. Used for DDL and migrations.
-   *
-   * The two shells disagree about how a batch is split. node:sqlite runs the
-   * whole string as a script. The Capacitor plugin splits it itself, on a
-   * literal `;\n`, and strips `--` comments from each chunk -- so a batch must
-   * survive that: no comment line may end in `;`, or the split lands inside a
-   * comment block and the comment-only chunk prepares no statement at all.
-   * `tools/verify-migration.mjs` asserts that rule.
+   * Run a statement or batch. node:sqlite runs the whole string as a script; the
+   * Capacitor plugin splits it on a literal `;\n` and strips `--` comments from
+   * each chunk. A comment line ending in `;` can leave an empty chunk that
+   * prepares no statement, so keep comment lines free of trailing semicolons. The
+   * harness asserts that rule.
    */
   exec(sql: string): Promise<void>;
 

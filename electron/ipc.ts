@@ -16,12 +16,9 @@ function assertParams(params: unknown): asserts params is SQLInputValue[] {
 }
 
 /**
- * Exposes the database to the renderer as a small set of SQL primitives.
- *
- * Raw SQL over IPC is safe here only because every statement originates in
- * shared/db/repositories and the renderer runs with contextIsolation on; the
- * payloads are still validated so a compromised renderer cannot pass a
- * non-string through.
+ * Exposes the database to the renderer as SQL primitives. Raw SQL over IPC is
+ * safe only because statements originate in shared/db/repositories and the
+ * renderer runs with contextIsolation on; payloads are still validated.
  */
 export function registerDatabaseIpc(db: GameDatabase): void {
   ipcMain.handle('db:version', () => db.sqliteVersion());

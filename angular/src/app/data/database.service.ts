@@ -8,13 +8,10 @@ import { listAbilities, type Ability } from '@/db/repositories/abilities';
 import { ElectronIpcDriver } from './electron-ipc.driver';
 
 /**
- * The renderer's entry point to the database.
- *
- * It picks a DatabasePort for the platform, migrates once, and exposes typed
- * reads. The SQL lives in shared/db/repositories; this class never writes any.
- *
- * initialize() is idempotent and safe to call from anywhere, so the app
- * initializer and individual components can both call it.
+ * The renderer's entry point to the database: pick a DatabasePort, migrate once,
+ * and expose typed reads. SQL lives in shared/db/repositories; this class writes
+ * none. initialize() is idempotent, so the app initializer and components can
+ * both call it.
  */
 @Injectable({ providedIn: 'root' })
 export class DatabaseService {

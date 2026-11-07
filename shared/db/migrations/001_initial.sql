@@ -1,51 +1,21 @@
 -- =====================================================================
 -- 001_initial.sql  -  Ember Codex database (SQLite)
 --
--- RULESET: 2024 Player's Handbook ONLY (labelled "5.5e" on D&D Beyond
--- since March 2026). No rule_year column exists anywhere: the app
--- supports one ruleset, so the column would be a constant.
+-- RULESET: 2024 Player's Handbook only. No rule_year column exists: the
+-- app supports one ruleset, so it would be a constant.
 --
--- Requirements:
---   * SQLite 3.37+ (STRICT tables).
---   * The app MUST run  PRAGMA foreign_keys = ON;  every time it opens a
---     connection. SQLite ignores every FOREIGN KEY / ON DELETE rule below
---     without it. (It cannot live in this file: the pragma does nothing
---     inside a transaction, and migrations run inside one.)
+-- Every connection MUST run  PRAGMA foreign_keys = ON;  SQLite ignores
+-- every FOREIGN KEY / ON DELETE rule below without it. It cannot live in
+-- this file: the pragma does nothing inside a transaction, and migrations
+-- run inside one.
 --
--- Conventions:
---   * Booleans are INTEGER 0/1 (SQLite has no boolean type).
---   * Dates are ISO-8601 TEXT in UTC ('2026-09-29T18:30:00Z').
---   * Content tables (catalog) carry source_id + slug. The slug is the
---     stable identifier used by import/export files ("key" in JSON).
---     Column is not called "key": KEY is reserved in MySQL and a keyword
---     in SQLite.
---   * Fixed vocabulary -- ability, damage_type, feat_category, roll_scope,
---     weapon_property, weapon_category, mastery_property, class_grant_kind
---     -- is seeded, globally unique, and carries NO source_id. skill, tool,
---     language and condition are the exception: they are open-ended, so
---     source_id is nullable there and NULL means global. A pack may add its
---     own but may not redefine a global slug, and the importer refuses that.
---   * DELETE POLICY, in two tiers. The distinction matters, because the
---     obvious "ON DELETE CASCADE everywhere" is actively dangerous here:
---     species cascades to player_character, so deleting an imported
---     content pack would silently destroy the user's characters.
---       TIER 1  content -> content   ON DELETE CASCADE. Removing a pack
---               removes that pack's own rows and their internal links.
---       TIER 2  content -> character  ON DELETE RESTRICT. Player data must
---               never delete content, and content must never delete
---               player data. Deleting a species a character uses raises
---               an error naming the blocker; the app then reports which
---               characters depend on it rather than eating the data.
---               Deleting a CHARACTER still cascades to all of that
---               character's rows, which is what you want.
+-- DELETE POLICY, in two tiers. Content -> content is ON DELETE CASCADE,
+-- content -> character is ON DELETE RESTRICT. Removing a pack cannot
+-- destroy a character; deleting one still cascades to its rows.
 --
--- NOT LEGAL ADVICE, but structurally relevant: this file ships NO rules
--- text. The only seed data is the six ability names and the feat
--- category names -- both are facts about the game's vocabulary, not
--- reproduced content. All spell/class/species/background text arrives via
--- the JSON importer, and source.name / source.version record what the
--- user licensed, with source.license / source.attribution carrying the
--- credit a third-party licence like CC-BY-4.0 requires.
+-- Closed vocabularies are seeded, globally unique and carry no source_id.
+-- skill, tool, language and condition are pack-extensible, with NULL
+-- source_id meaning global.
 -- =====================================================================
 
 
@@ -58,23 +28,13 @@ CREATE TABLE source (
   slug        TEXT    NOT NULL UNIQUE,              -- 'srd-5.2.1', 'my-homebrew'
   name        TEXT    NOT NULL,
   version     TEXT    NOT NULL,
-  -- Which pack replaces this one, when the user chose to keep both rather
-  -- than replace in place. NULL on an active pack. ON DELETE SET NULL, not
-  -- the tier-1 CASCADE: this is a pointer to a successor, not an ownership
-  -- edge. Deleting v2 should un-mark v1, not take v1 with it. The two-tier
-  -- policy in the header governs who a row BELONGS to; "what replaced this"
-  -- belongs to neither row. It also chains v1 -> v2 -> v3 with no extra
-  -- state, which a status TEXT column could not.
+  -- Which pack replaces this one when the user keeps both. NULL on an active
+  -- pack. SET NULL, not the tier-1 CASCADE: this is a successor pointer, not an
+  -- ownership edge.
   superseded_by INTEGER REFERENCES source (id) ON DELETE SET NULL,
-  -- Licence and attribution for reproduced third-party content. A NULL
-  -- licence means original content the user owns -- which is what their own
-  -- homebrew is -- and needs no external credit. The SRD is CC-BY-4.0, which
-  -- requires crediting Wizards of the Coast.
-  --
-  -- This is provenance, not enforcement. A user types their own claim into
-  -- their own JSON and nothing verifies it. What it buys: the app can
-  -- attribute SRD content correctly, and a pack can be named at the point
-  -- of deletion.
+  -- Licence and attribution for reproduced content. NULL licence means original
+  -- content and needs no credit. This is provenance, not enforcement: nothing
+  -- verifies the claim, but the app can attribute SRD content.
   license     TEXT,
   attribution TEXT,          -- required whenever license is set
   imported_at TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
@@ -101,11 +61,9 @@ CREATE TABLE ability (
 -- ---------------------------------------------------------------------
 -- 2. FEATS
 --
--- 2024 has four kinds of feat, per D&D Beyond: Origin (background),
--- General (level 4+), Fighting Style (bestowed by class features), and
--- Epic Boons (level 19). They are one table with a category tag, not four
--- tables -- they share an identical shape (a pool of options, one pick,
--- sometimes an ability bonus).
+-- Four kinds: Origin, General, Fighting Style and Epic Boon. They share one
+-- table with a category tag because the shape is identical: a pool, one pick,
+-- sometimes an ability bonus.
 -- ---------------------------------------------------------------------
 
 CREATE TABLE feat_category (
@@ -137,21 +95,10 @@ CREATE TABLE feat_ability_prereq (
 -- ---------------------------------------------------------------------
 -- 3. ORIGIN CONTENT
 --
--- ASI lives on the BACKGROUND in 2024, not the species. D&D Beyond's
--- species article has a section titled "Ability Score Adjustments No
--- Longer Tied to Species". There is therefore no species_ability table.
---
--- species_variant covers all three 2024 sub-species terms. They are
--- mechanically identical -- "choose one at character creation, it gates
--- traits and spells" -- so they share one table and differ only in the
--- label the rules use:
---   lineage   Elf (Drow/High/Wood), Dwarf (Hill/Mountain),
---             Gnome (Forest/Rock), Halfling (Lightfoot/Stout)
---   ancestry  Goliath (six giant ancestries),
---             Dragonborn (Draconic/Chromatic/Gemfire)
---   legacy    Tiefling (Abyssal/Chthonic/Infernal)
--- Human, Aasimar and Orc have no variant, so variant_id is nullable.
--- Variants grant TRAITS, not feats, and those traits are rows in `feature`.
+-- ASI lives on the background in 2024, not the species, so there is no
+-- species_ability table. A species variant is lineage, ancestry or legacy.
+-- The three are mechanically identical, so they share one table. Variants
+-- grant traits, not feats.
 -- ---------------------------------------------------------------------
 
 CREATE TABLE species (
@@ -219,13 +166,9 @@ CREATE TABLE class (
   name                    TEXT    NOT NULL,
   hit_die                 INTEGER NOT NULL CHECK (hit_die IN (6, 8, 10, 12)),
   spellcasting_ability_id INTEGER REFERENCES ability (id),   -- NULL for non-casters
-  -- How the class scales its spell access. Derived max spell level is
-  -- computed from this plus the slot table, which is far less data than
-  -- recording an unlock level per spell per class.
-  --   full = every slot level the class reaches
-  --   half = up to half the highest slot level
-  --   pact = Warlock. Limited to slot levels 1-5, single slot level per
-  --          class level, short-rest recovery.
+  -- How the class scales spell access. `full`, `half` and `pact` derive the
+  -- max spell level from the slot table; `pact` is the Warlock's short-rest,
+  -- single-level slots.
   casting_progression     TEXT    NOT NULL DEFAULT 'none'
                           CHECK (casting_progression IN ('none', 'full', 'half', 'pact')),
   UNIQUE (source_id, slug)
@@ -269,21 +212,13 @@ CREATE TABLE feature (
 -- ---------------------------------------------------------------------
 -- 5. LEVEL PROGRESSION (data, not structure)
 --
--- Every "you gain something at class level N" rule lives here as rows.
--- That is why Fighter getting feats at 4/6/8/12/14/16 while Rogue gets
--- them at 4/8/10/12/16 needs no special case -- it is just different
--- rows.
+-- Every choice at a class level is a row, so Fighter and Rogue ASI levels
+-- need no special case.
 -- ---------------------------------------------------------------------
 
--- Every "you gain a choice at class level N" mechanic uses this one shape:
--- a pool of options, some number of picks, the allowance growing at
--- specific class levels. That covers ASI/feat, Epic Boons, Fighting
--- Styles and Weapon Masteries without a table per mechanic, and it is the
--- shape a JSON importer wants.
---
--- Adding a fifth mechanic later (Sorcerer Metamagic options, Warlock
--- Eldritch Invocations, Cleric Divine Orders) is a seed INSERT here plus
--- its own content catalog -- not a schema change.
+-- A choice mechanic is a pool of options, a number of picks, and the levels
+-- that open more. That covers ASI/feat, Epic Boons, Fighting Styles and Weapon
+-- Masteries; a fifth mechanic is a seed INSERT, not a schema change.
 CREATE TABLE class_grant_kind (
   code        TEXT PRIMARY KEY,
   description TEXT NOT NULL
@@ -295,12 +230,9 @@ INSERT INTO class_grant_kind (code, description) VALUES
   ('fighting_style', 'Fighting Style feat'),
   ('weapon_mastery', 'Weapon Mastery for one chosen weapon');
 
--- How many picks OPEN at each class level. This is INCREMENTAL, so the
--- allowance a character holds is SUM(opens) for the levels they reached.
---   Fighter     (1,'fighting_style',1) (4..16,'asi_or_feat',1 each)
---               (1,'weapon_mastery',3) (4,'weapon_mastery',1) ...
---   Battle Master subclass adds a 2nd Fighting Style at class level 7
---   Rogue       (4,8,10,12,16,'asi_or_feat',1)
+-- Picks are INCREMENTAL: the allowance is SUM(opens) for the levels reached.
+--   Fighter  (4,6,8,12,14,16,'asi_or_feat',1 each), (1,'weapon_mastery',3)
+--   Rogue    (4,8,10,12,16,'asi_or_feat',1)
 CREATE TABLE class_grant_slot (
   class_id    INTEGER NOT NULL REFERENCES class (id) ON DELETE CASCADE,
   class_level INTEGER NOT NULL CHECK (class_level BETWEEN 1 AND 20),
@@ -309,7 +241,6 @@ CREATE TABLE class_grant_slot (
   PRIMARY KEY (class_id, class_level, grant_kind)
 ) STRICT;
 
--- Cantrips known at each class level (Sorcerer 4 at 1st -> 6 at 10th+).
 CREATE TABLE class_cantrip_count (
   class_id    INTEGER NOT NULL REFERENCES class (id) ON DELETE CASCADE,
   class_level INTEGER NOT NULL CHECK (class_level BETWEEN 1 AND 20),
@@ -352,10 +283,8 @@ CREATE TABLE class_slot_recovery (
 -- ---------------------------------------------------------------------
 -- 6. SPELLS
 --
--- 2024 has no "known spells" for any class: every caster prepares from
--- a list at a long rest. Cantrips are the only spells known outright,
--- and they are stored separately in character_cantrip because they never
--- touch a spell slot.
+-- Every caster prepares; cantrips are the only spells known outright and are
+-- stored in character_cantrip because they never touch a slot.
 -- ---------------------------------------------------------------------
 
 CREATE TABLE spell (
@@ -397,45 +326,13 @@ CREATE TABLE feature_spell (
   PRIMARY KEY (feature_id, spell_id)
 ) STRICT;
 
--- Spells and cantrips GRANTED by a species lineage or a patron subclass.
--- Always prepared, castable without a slot, and they do NOT count against
--- the character's prepared-spell total.
+-- What damage a spell deals. 2024 spells often have no single fixed type
+-- (Chromatic Orb, Destructive Wave, Spirit Guardians), so `selection` records
+-- whether the row is fixed or one of a choice.
 --
---   Elf / Tiefling lineage : a pair at class levels 3 and 5
---   Celestial Patron       : Aid, Cure Wounds, Guiding Bolt, Lesser
---                            Restoration, Light, Sacred Flame at 3,
---                            Daylight, Revivify at 5; Guardian of Faith,
---                            Wall of Fire at 7; Greater Restoration,
---                            Summon Celestial at 9
---   High Elf               : Prestidigitation, replaceable with any
---                            Wizard cantrip each long rest (replaceable=1)
---   Wood Elf               : Druidcraft
---   Rock Gnome             : Mending and Prestidigitation
---   Forest Gnome           : Speak With Animals
---
--- These are NEVER written to character_spell or character_cantrip: they
--- are derived at read time, so a character cannot desync or delete them.
--- That is also why character_cantrip.class_id can stay NOT NULL -- a Gnome
--- with no class levels still records Speak With Animals, because that row
--- comes from a feature rather than from a class.
---
--- grant_level is the CLASS level at which the spell arrives; NULL means
--- innate, which is the case for every species and lineage cantrip.
--- What DAMAGE a spell deals, as distinct from the damage_type_id columns
--- elsewhere: 2024 spells often have no single fixed type. Chromatic Orb
--- lets the caster pick, Destructive Wave is radiant OR necrotic, Spirit
--- Guardians likewise. That is a rules mechanic, not a data-entry quirk.
---
--- Two rows with selection = 'choice' means "pick one of these".
---
--- delivery exists because "Cloudkill deals necrotic damage" and "Firebolt
--- deals fire damage" are not the same kind of statement: the first repeats
--- on a trigger, the second is rolled once.
---
--- Deliberately NOT stored here: damage dice. Firebolt is 1d10 at 1st but
--- 4d10 at 17th, so a static dice string cannot express cantrip scaling.
--- See cantrip_damage_dice for that. The per-occurrence dice and the
--- trigger wording stay in the description.
+-- `delivery` distinguishes a one-off cast from a repeating aura. Damage dice
+-- are not stored here: cantrip scaling lives in cantrip_damage_dice, and the
+-- per-occurrence dice stay in the description.
 CREATE TABLE spell_damage_type (
   spell_id       INTEGER NOT NULL REFERENCES spell (id) ON DELETE CASCADE,
   damage_type_id INTEGER NOT NULL REFERENCES damage_type (id) ON DELETE CASCADE,
@@ -445,14 +342,9 @@ CREATE TABLE spell_damage_type (
   PRIMARY KEY (spell_id, damage_type_id)
 ) STRICT;
 
--- Cantrip damage scales at class levels 1, 5, 11 and 17 (Firebolt 1d10 ->
--- 2d10 -> 3d10 -> 4d10). Stored as rows so the breakpoints are data, not
--- baked-in columns.
---
--- Keyed by class because only CLASS-granted cantrips scale: an Eldritch
--- Knight's Blade Ward is 1d4/2d4/3d4/4d4, while species cantrips such as
--- Mending never scale and simply have no rows here. Resolve at read time
--- with the highest from_level at or below the character's class level.
+-- Cantrip damage scales at class levels 1, 5, 11 and 17, stored as rows so the
+-- breakpoints are data. Keyed by class because only class-granted cantrips
+-- scale; a species cantrip such as Mending has no rows.
 CREATE TABLE cantrip_damage_dice (
   class_id   INTEGER NOT NULL REFERENCES class (id) ON DELETE CASCADE,
   spell_id   INTEGER NOT NULL REFERENCES spell (id) ON DELETE CASCADE,
@@ -461,6 +353,11 @@ CREATE TABLE cantrip_damage_dice (
   PRIMARY KEY (class_id, spell_id, from_level)
 ) STRICT;
 
+-- Spells granted by a species lineage or patron subclass. They are always
+-- prepared, castable without a slot, and do not count against the prepared
+-- total. They are never written to character_spell or character_cantrip. They
+-- are derived at read time. `grant_level` is the class level at which the
+-- spell arrives; NULL means innate.
 CREATE TABLE granted_spell (
   feature_id  INTEGER NOT NULL REFERENCES feature (id) ON DELETE CASCADE,
   spell_id    INTEGER NOT NULL REFERENCES spell (id) ON DELETE CASCADE,
@@ -483,11 +380,9 @@ CREATE TABLE character_granted_spell (
 -- ---------------------------------------------------------------------
 -- 7. EFFECTS AND CONDITIONS
 --
--- `effect` is the general numeric-rules carrier: base values, ability
--- modifier deltas, speed deltas. `condition` is separate because the
--- standard conditions are fixed rules data, not imported content -- if
--- they were per-source, importing two overlapping packs would give you
--- two "Poisoned" conditions and split a poisoned character's state.
+-- `effect` carries numeric rules: base values, ability deltas and speed.
+-- `condition` is separate because standard conditions are fixed rules data.
+-- Per-source copies would split a poisoned character's state.
 -- ---------------------------------------------------------------------
 
 CREATE TABLE effect (
@@ -502,19 +397,10 @@ CREATE TABLE effect (
   UNIQUE (source_id, slug)
 ) STRICT;
 
--- Ability score deltas. `amount` is added to that ability's MODIFIER,
--- so amount 0 means "add this ability's modifier", which is exactly how
--- Unarmored Defense works.
---
--- max_score is the ceiling for this specific source, and that is why it
--- lives here rather than on the feat:
---   20  ASI, general feats, background ASI
---   22  a Tome sets the score to 22
---   25  Primal Champion (+4)
---   30  Epic Boon
--- max_delta is the Tome rule specifically: it raises the character's own
--- ceiling by 2 each time and sets the score to that ceiling, so two
--- Tomes reach 24 rather than both capping at 22.
+-- Ability score deltas: `amount` is added to the ability's MODIFIER, so 0
+-- means "add the modifier" (Unarmored Defense). `max_score` is this source's
+-- ceiling (20 ASI, 22 Tome, 25 Primal Champion, 30 Epic Boon). `max_delta`
+-- is the Tome rule: it raises the character's own ceiling by 2 each time.
 CREATE TABLE effect_modifier (
   effect_id  INTEGER NOT NULL REFERENCES effect (id) ON DELETE CASCADE,
   ability_id INTEGER NOT NULL REFERENCES ability (id),
@@ -525,7 +411,6 @@ CREATE TABLE effect_modifier (
   PRIMARY KEY (effect_id, ability_id)
 ) STRICT;
 
--- Longstrider +10, Haste doubling, 2024 Goliath Large Form +10.
 CREATE TABLE effect_speed (
   effect_id   INTEGER PRIMARY KEY REFERENCES effect (id) ON DELETE CASCADE,
   speed_delta INTEGER NOT NULL
@@ -534,17 +419,10 @@ CREATE TABLE effect_speed (
 -- ---------------------------------------------------------------------
 -- 7a. ROLL MODIFIERS AND RECHARGES
 --
--- Most of what an "effect" does in 2024 is modify a roll, and it differs
--- only in KIND, not in shape. So it is one table:
---
---   Alert              initiative     advantage
---   Danger Sense       save:DEX       advantage
---   Haste              AC             flat +2
---   Innate Sorcery     spell_save_dc  flat +1
---   Innate Sorcery     spell_attack   advantage
---   Elemental Weapon   weapon_damage  dice +1d4
---   Searing Smite      weapon_damage  dice +1d6 fire
---   Savage Attacker    weapon_damage  reroll_higher
+-- Most effects modify a roll and differ only in kind, so one table holds
+-- advantage, flat bonuses, dice and rerolls. Examples: Alert (initiative,
+-- advantage), Bless (attack_roll, +1d4), Searing Smite (weapon_damage, +1d6
+-- fire), Savage Attacker (weapon_damage, reroll_higher).
 -- ---------------------------------------------------------------------
 
 CREATE TABLE roll_scope (
@@ -615,14 +493,9 @@ CREATE TABLE spell_effect (
   PRIMARY KEY (spell_id, effect_id)
 ) STRICT;
 
--- The fifteen standard conditions (Frightened, Grappled, Prone, Poisoned, ...)
--- are seeded below with source_id NULL, which is what makes them global.
---
--- A pack may ADD its own -- a bespoke "marked" -- and may not REDEFINE a
--- global one. That distinction is the point of the nullable column. Without
--- it, importing two overlapping packs gives you two "Poisoned" conditions
--- and a poisoned character stops being poisoned. The importer refuses a pack
--- that defines a slug which already exists globally; see shared/packs.
+-- The fifteen standard conditions are seeded with source_id NULL, which makes
+-- them global. A pack may add its own but may not redefine a global slug; the
+-- importer refuses that, so two packs cannot split a poisoned character.
 CREATE TABLE condition (
   id          INTEGER PRIMARY KEY,
   -- NULL = global vocabulary shipped with the app. Set = pack-owned.
@@ -648,13 +521,12 @@ CREATE UNIQUE INDEX condition_global_slug ON condition (slug) WHERE source_id IS
 -- PHB, so modelling them is cheap.
 -- ---------------------------------------------------------------------
 
--- Every species has darkvision (60 or 120 feet); wall spells grant it too.
+-- Human, Halfling and Goliath have no Darkvision.
 CREATE TABLE effect_darkvision (
   effect_id   INTEGER PRIMARY KEY REFERENCES effect (id) ON DELETE CASCADE,
   range_feet  INTEGER NOT NULL CHECK (range_feet > 0)
 ) STRICT;
 
--- Feats that hand a weapon a property (Finesse, Reach).
 CREATE TABLE effect_weapon_property (
   effect_id    INTEGER NOT NULL REFERENCES effect (id) ON DELETE CASCADE,
   property_id  INTEGER NOT NULL REFERENCES weapon_property (id) ON DELETE CASCADE,
@@ -677,8 +549,7 @@ CREATE TABLE effect_language (
   PRIMARY KEY (effect_id, language_id)
 ) STRICT;
 
--- Immunity to a CONDITION, as distinct from a damage type. Satyr: immune
--- to Charmed. Githzerai: immune to Frightened.
+-- Immunity to a CONDITION, as distinct from a damage type.
 CREATE TABLE effect_condition_modifier (
   effect_id    INTEGER NOT NULL REFERENCES effect (id) ON DELETE CASCADE,
   condition_id INTEGER NOT NULL REFERENCES condition (id) ON DELETE CASCADE,
@@ -686,13 +557,11 @@ CREATE TABLE effect_condition_modifier (
   PRIMARY KEY (effect_id, condition_id, relation)
 ) STRICT;
 
--- Champion's Improved Critical lowers the nat-20 threshold to 19.
 CREATE TABLE effect_crit (
   effect_id INTEGER PRIMARY KEY REFERENCES effect (id) ON DELETE CASCADE,
   threshold INTEGER NOT NULL CHECK (threshold BETWEEN 1 AND 20)
 ) STRICT;
 
--- 2024 Goliath Large Form: Medium becomes Large.
 CREATE TABLE effect_size (
   effect_id  INTEGER PRIMARY KEY REFERENCES effect (id) ON DELETE CASCADE,
   size       TEXT    NOT NULL CHECK (size IN ('tiny', 'small', 'medium', 'large', 'huge', 'gargantuan'))
@@ -702,12 +571,9 @@ CREATE TABLE effect_size (
 -- ---------------------------------------------------------------------
 -- 7b. DAMAGE TYPES AND RELATIONS
 --
--- Thirteen types, fixed vocabulary like ability, so seeded and globally
--- unique with no source_id. Without that, importing two overlapping packs
--- gives you two "fire" rows and silently splits every resistance lookup.
--- Unlike skill, tool, language and condition, this table stays closed: a
--- damage type is a rules-bearing join key, so a second "fire" corrupts a
--- lookup rather than duplicating a preference.
+-- Thirteen fixed types, seeded globally with no source_id. Two "fire" rows
+-- would split every resistance lookup, so unlike the pack-extensible
+-- vocabularies this table stays closed.
 -- ---------------------------------------------------------------------
 
 CREATE TABLE damage_type (
@@ -752,27 +618,17 @@ CREATE TABLE spell_damage_modifier (
   PRIMARY KEY (spell_id, damage_modifier_id)
 ) STRICT;
 
--- Character resistances are STORED, not derived. Deriving would require
--- knowing which features a character has, and features are granted
--- implicitly by species + variant + class level rather than owned as rows
--- -- a Bear Totem Barbarian's resistance is gated on a class level, not a
--- row the character holds. So the user owns this list, and the four
--- provenance columns below record which content granted an entry.
+-- Character resistances are stored, not derived: features are granted by
+-- species, variant and class level rather than owned as rows. The provenance
+-- columns record which content granted an entry.
 CREATE TABLE character_damage_modifier (
   character_id   INTEGER NOT NULL REFERENCES player_character (id) ON DELETE CASCADE,
   damage_type_id INTEGER NOT NULL REFERENCES damage_type (id) ON DELETE CASCADE,
   relation       TEXT    NOT NULL CHECK (relation IN ('resistant', 'immune', 'vulnerable')),
-  -- Provenance. Four nullable columns with a one-of CHECK rather than the
-  -- source_kind + source_ref pair this table used to carry, because a
-  -- polymorphic pair cannot be a foreign key and so can be neither enforced,
-  -- cascaded nor checked. It was worse than dangling: no table here uses
-  -- AUTOINCREMENT, so SQLite reissues a freed id to the next insert, and a
-  -- stale source_ref could point at a different, unrelated feature that
-  -- inherited the number.
-  --
-  -- ON DELETE RESTRICT throughout, per the tier-2 policy above. Content must
-  -- never silently delete player data, and a provenance pointer that quietly
-  -- went NULL would hide the removal rather than surface it.
+  -- Provenance: four nullable columns with a one-of CHECK, not a polymorphic
+  -- source_kind/source_ref pair. A polymorphic pair cannot be a foreign key,
+  -- so it could be neither enforced nor cascaded, and a reissued row id could
+  -- point at a different feature. ON DELETE RESTRICT, per tier 2.
   species_id  INTEGER REFERENCES species (id)         ON DELETE RESTRICT,
   variant_id  INTEGER REFERENCES species_variant (id) ON DELETE RESTRICT,
   feature_id  INTEGER REFERENCES feature (id)         ON DELETE RESTRICT,
@@ -791,9 +647,8 @@ CREATE TABLE character_damage_modifier (
 -- ---------------------------------------------------------------------
 -- 8. SKILLS AND PROFICIENCIES
 --
--- 2024 folds Athletics into Strength and everything else Dexterity-
--- flavoured into Dexterity; there is one proficiency per ability, not a
--- separate Athletics/Acrobatics split as in 2014.
+-- 2024 has 18 skills across six abilities; saving throws are the
+-- one-per-ability pair.
 -- ---------------------------------------------------------------------
 
 CREATE TABLE skill (
@@ -899,7 +754,8 @@ CREATE TABLE item (
   weight      REAL    NOT NULL DEFAULT 0 CHECK (weight >= 0),      -- pounds
   cost_cp     INTEGER NOT NULL DEFAULT 0 CHECK (cost_cp >= 0),     -- price in copper
   description TEXT,
-  -- 2024: attunement is once per long rest, not a lifetime cap of 3.
+  -- 2024: attuning takes a Short Rest, and a creature can be attuned to
+  -- at most three items at a time.
   requires_attunement INTEGER NOT NULL DEFAULT 0 CHECK (requires_attunement IN (0, 1)),
   UNIQUE (source_id, slug)
 ) STRICT;
@@ -920,26 +776,20 @@ CREATE TABLE weapon_category (
     CHECK (code IN ('simple_melee', 'simple_ranged', 'martial_melee', 'martial_ranged'))
 ) STRICT;
 
--- Regular weapon properties, normalised because they are rules-bearing,
--- not flavour: Finesse picks STR or DEX, Versatile doubles the dice
--- two-handed, Heavy requires STR 13 and two hands, Light/Reach change AC
--- and Stealth.
---
--- 2024 dropped "medium" as a weapon property (it was never one in any
--- edition -- Medium is an ARMOUR type) and added "loading" for muskets
--- and pistols.
+-- Regular weapon properties, normalised because they are rules-bearing.
+-- "Medium" and "Improvised" are not properties: the first is armour, the
+-- second a rules glossary entry. Range is not a code here because the weapon
+-- row does not yet carry a normal/long range pair.
 CREATE TABLE weapon_property (
   id   INTEGER PRIMARY KEY,
   code TEXT    NOT NULL UNIQUE
        CHECK (code IN ('finesse', 'versatile', 'heavy', 'light', 'loading',
-                       'reach', 'thrown', 'two_handed', 'ammunition', 'improvised'))
+                       'reach', 'thrown', 'two_handed', 'ammunition'))
 ) STRICT;
 
--- MASTERY properties: a 2024 mechanic, and the REPLACEMENT for weapon
--- proficiency rather than an addition to it. Each weapon lists exactly
--- ONE mastery property "in addition to" its regular properties, which is
--- why this is a lookup with a single FK on `weapon` instead of another
--- row in weapon_property_map -- the cardinality is 1:1, not N:M.
+-- MASTERY properties: separate from weapon proficiency, which still
+-- exists. Each weapon carries exactly one, which is why this is a lookup
+-- with a single FK on `weapon` rather than an N:M table.
 CREATE TABLE mastery_property (
   id   INTEGER PRIMARY KEY,
   code TEXT    NOT NULL UNIQUE
@@ -997,12 +847,14 @@ CREATE TABLE player_character (
   -- the app's default rules screen ('xp' at 0 XP). CHECK still rejects
   -- negatives; NULL passes it.
   experience_points INTEGER DEFAULT 0 CHECK (experience_points >= 0),
-  -- 2024 allows HP to go NEGATIVE: 0 means dying, below 0 means an
-  -- automatic failed death save. The old upper-only bound was wrong.
+  -- 2024 has no negative HP: 0 means dying, and damage at 0 HP is a
+  -- failed death save. The bound rejects negative scores as well as
+  -- values above hp_max.
   hp_max            INTEGER NOT NULL CHECK (hp_max >= 1),
-  hp_current        INTEGER NOT NULL CHECK (hp_current <= hp_max),
+  hp_current        INTEGER NOT NULL CHECK (hp_current BETWEEN 0 AND hp_max),
   hp_temp           INTEGER NOT NULL DEFAULT 0 CHECK (hp_temp >= 0),
-  -- 2024 Inspiration: gained on a long rest, capped at one.
+  -- 2024 Heroic Inspiration: capped at one. Humans regain it on a long
+  -- rest; otherwise the DM awards it.
   inspiration       INTEGER NOT NULL DEFAULT 0 CHECK (inspiration IN (0, 1)),
   -- Rest GENERATIONS. Incrementing a counter is the entire "take a rest"
   -- operation: a spend row is only counted when its generation matches the
@@ -1069,16 +921,10 @@ CREATE TABLE character_class (
   FOREIGN KEY (subclass_id, class_id) REFERENCES subclass (id, class_id) ON DELETE SET NULL
 ) STRICT;
 
--- What the character took from a class grant.
---
--- An asi_or_feat pick spent on an Ability Score Increase has BOTH feat_id
--- AND item_id NULL -- that is the ASI branch, and it is now structural
--- rather than merely "the absence of a row", which is what the previous
--- design relied on.
---
--- The composite FK to class_grant_slot means a pick cannot be recorded
--- for a slot the class never opens, which the old design could not
--- guarantee.
+-- What the character took from a class grant. An asi_or_feat pick with both
+-- feat_id and item_id NULL is the ASI branch, which is structural rather than
+-- "the absence of a row". The composite FK stops a pick for a slot the class
+-- never opens.
 CREATE TABLE character_grant_pick (
   character_id INTEGER NOT NULL REFERENCES player_character (id) ON DELETE CASCADE,
   class_id     INTEGER NOT NULL,
@@ -1156,8 +1002,8 @@ CREATE TABLE character_origin_feat (
 ) STRICT;
 
 -- Level 1+ spells the character has prepared. In 2024 EVERY caster
--- prepares -- Cleric, Druid, Paladin, Ranger, Wizard, Artificer,
--- Sorcerer and Warlock alike -- so is_prepared is always meaningful and no
+-- prepares -- Bard, Cleric, Druid, Paladin, Ranger, Sorcerer, Warlock
+-- and Wizard alike -- so is_prepared is always meaningful and no
 -- known/prepared mode exists. class_id records which class taught it:
 -- provenance only, never extra daily casts, because casts are bounded by
 -- spell slots.
@@ -1169,14 +1015,10 @@ CREATE TABLE character_spell (
   PRIMARY KEY (character_id, spell_id, class_id)
 ) STRICT;
 
--- Cantrips are known outright, never slotted, never prepared. Split out so
--- they cannot pollute the slot economy.
---
--- ALWAYS-PREPARED SPELLS ARE NOT STORED HERE. Lineage and patron spells
--- arrive via granted_spell and are derived at read time, so the character
--- physically cannot delete or desync them. Ordinary prepared spells --
--- including every Warlock spell, since 2024 Warlocks prepare like all
--- other casters -- live in character_spell.
+-- Cantrips are known outright, never slotted, never prepared. Always-prepared
+-- lineage and patron spells are not stored here: they arrive via granted_spell
+-- and are derived at read time. Ordinary prepared spells live in
+-- character_spell, including every Warlock spell.
 CREATE TABLE character_cantrip (
   character_id INTEGER NOT NULL REFERENCES player_character (id) ON DELETE CASCADE,
   spell_id     INTEGER NOT NULL REFERENCES spell (id) ON DELETE RESTRICT,
@@ -1209,16 +1051,10 @@ CREATE TABLE character_item (
   PRIMARY KEY (character_id, item_id)
 ) STRICT;
 
--- Post-20 progression. What is settled is that class levels stop at 20,
--- which is why no class_* table above needed widening, and that epic
--- boons are available from 19.
---
--- HOW progression continues past 20 is contested; sources disagree on
--- whether class progression continues or only feat picks do. The 30,000
--- XP figure that circulates is the optional 2014 DMG "Bonus Feats at
--- Level 20" rule, not 2024 core. threshold_xp stores whatever ruling
--- the table uses rather than assuming one, and NULL means no XP gate at
--- all — milestone levelling, or a DM grant.
+-- Post-20 progression. Class levels stop at 20 and epic boons start at 19.
+-- How progression continues is contested; the 30,000 XP figure is the
+-- optional 2014 DMG rule, not 2024 core. threshold_xp stores whatever ruling
+-- the table uses; NULL means no XP gate.
 CREATE TABLE character_epic_boon (
   character_id INTEGER NOT NULL REFERENCES player_character (id) ON DELETE CASCADE,
   feat_id      INTEGER NOT NULL REFERENCES feat (id) ON DELETE RESTRICT,
@@ -1229,18 +1065,12 @@ CREATE TABLE character_epic_boon (
 -- ---------------------------------------------------------------------
 -- 10b. SPENDING LIMITED EFFECTS AND SPELL SLOTS
 --
--- Both tables hold one generation column PER INTERVAL rather than a
--- polymorphic interval column, because the content side already says which
--- interval governs: effect_recharge.interval for effects,
--- class_slot_recovery.interval for slots. The read therefore never has to
--- keep two copies of the same fact in sync.
+-- Each table has a generation column per interval, so a rest is one counter
+-- increment and no UPDATE here. A spend counts only while its generation
+-- matches.
 --
--- A spend counts only while its generation matches the character's current
--- counter, so taking a rest is one counter increment and no UPDATE here.
---
--- KNOWN GAP, app-enforced: neither table can CHECK spends against the
--- maximum, because the maximum lives in another table. The app must reject
--- overspending. Same class of rule as the background ASI distribution.
+-- KNOWN GAP, app-enforced: neither table can CHECK spends against a maximum
+-- that lives in another table, so the app must reject overspending.
 -- ---------------------------------------------------------------------
 
 CREATE TABLE character_effect_uses (
@@ -1310,8 +1140,6 @@ INSERT INTO condition (slug, name) VALUES
   ('stunned',        'Stunned'),
   ('unconscious',    'Unconscious');
 
--- 2024 regular properties. "medium" is NOT here: Medium is an armour type
--- and was never a weapon property in any edition.
 INSERT INTO weapon_property (code) VALUES
   ('finesse'),
   ('versatile'),
@@ -1321,10 +1149,8 @@ INSERT INTO weapon_property (code) VALUES
   ('reach'),
   ('thrown'),
   ('two_handed'),
-  ('ammunition'),
-  ('improvised');
+  ('ammunition');
 
--- The eight 2024 mastery properties. A weapon carries exactly one.
 INSERT INTO mastery_property (code) VALUES
   ('cleave'),
   ('graze'),
@@ -1341,8 +1167,6 @@ INSERT INTO weapon_category (code) VALUES
   ('martial_melee'),
   ('martial_ranged');
 
--- What a roll modifier applies to. ability_id is filled per row where the
--- scope names a specific ability, e.g. save:DEX for Danger Sense.
 INSERT INTO roll_scope (code, ability_id) VALUES
   ('initiative',     NULL),
   ('ability_check',  NULL),   -- narrow further per effect if needed
@@ -1358,10 +1182,6 @@ INSERT INTO roll_scope (code, ability_id) VALUES
   ('all_attacks',    NULL),
   ('exhaustion_save', NULL);
 
--- The thirteen damage types. Seeded like ability and condition: fixed
--- vocabulary, so no source_id and a globally unique slug. Without that,
--- two overlapping packs would give two "fire" rows and split every
--- resistance lookup.
 INSERT INTO damage_type (slug, name) VALUES
   ('acid',       'Acid'),
   ('bludgeoning', 'Bludgeoning'),

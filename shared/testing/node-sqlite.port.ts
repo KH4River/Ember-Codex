@@ -3,14 +3,10 @@ import { DatabaseSync, type SQLInputValue } from 'node:sqlite';
 import type { DatabasePort } from '../db/DatabasePort';
 
 /**
- * A DatabasePort backed by an in-memory node:sqlite database.
- *
- * Test-only, and it lives outside angular/src on purpose: the app build
- * compiles every .ts file under src with "types": [], so a file importing
- * node:sqlite cannot sit there. Both production shells are async and neither
- * is available in a spec, but DatabasePort is the seam they share -- so a spec
- * that runs against this is running the same code the app runs, only with a
- * different engine underneath.
+ * A DatabasePort backed by an in-memory node:sqlite database. Test-only, and
+ * outside angular/src because the app build compiles every .ts under src with
+ * "types": [], so a file importing node:sqlite cannot sit there. Specs get the
+ * same DatabasePort the app runs, with a different engine underneath.
  */
 export class NodeSqlitePort implements DatabasePort {
   private readonly db = new DatabaseSync(':memory:');
