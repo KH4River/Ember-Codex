@@ -13,7 +13,7 @@
 // the text rather than a second parse of the file, and it means a CHECK the
 // engine rejected at CREATE time cannot appear here.
 //
-// Why DBML rather than Mermaid: this schema has 51 composite primary keys, 63
+// Why DBML rather than Mermaid: this schema has 51 composite primary keys, 67
 // composite unique indexes and 106 CHECK constraints. Mermaid's erDiagram has
 // no syntax for any of the three -- composite keys flatten into a PK per
 // column, composite uniques are dropped, and CHECK is not expressible -- so a
