@@ -50,6 +50,8 @@ export type SpellSchool =
   | 'abjuration' | 'conjuration' | 'divination' | 'enchantment'
   | 'evocation' | 'illusion' | 'necromancy' | 'transmutation';
 export type RestInterval = 'short_rest' | 'long_rest';
+/** `permanent` means the effect never recovers. */
+export type RechargeInterval = RestInterval | 'permanent';
 export type DamageRelation = 'resistant' | 'immune' | 'vulnerable';
 export type RollModifierKind =
   | 'advantage' | 'disadvantage' | 'flat'
@@ -288,7 +290,7 @@ export interface PackRollModifier {
 }
 
 export interface PackRecharge {
-  interval: RestInterval;
+  interval: RechargeInterval;
   usesMax: number;
   shortRestReturns?: number;
   levelBonuses?: PackRechargeLevelBonus[];
@@ -361,6 +363,6 @@ export interface PackWeapon {
   category: WeaponCategory;
   damageDice: string;
   damageType?: Ref;
-  masteryProperty: MasteryProperty;
+  masteryProperty?: MasteryProperty;
   properties?: WeaponProperty[];
 }

@@ -3,6 +3,7 @@ import type {
   AbilityCode,
   ArmourType,
   FeatCategory,
+  MasteryProperty,
   PackAbilityModifier,
   PackAbilityPrereq,
   PackBackground,
@@ -865,12 +866,12 @@ async function items(pack: Pack): Promise<PackItem[]> {
   return result;
 }
 
-async function weapon(pack: Pack, item: { id: number; slug: string }): Promise<PackWeapon | undefined> {
+async function weapon(pack: Pack, item: { id: number }): Promise<PackWeapon | undefined> {
   const row = await pack.port.get<{
     category: WeaponCategory;
     damage_dice: string;
     damage_type: string;
-    mastery_property: PackWeapon['masteryProperty'] | null;
+    mastery_property: MasteryProperty | null;
   }>(
     `SELECT wc.code AS category, w.damage_dice, dt.slug AS damage_type, mp.code AS mastery_property
        FROM weapon w
@@ -881,9 +882,6 @@ async function weapon(pack: Pack, item: { id: number; slug: string }): Promise<P
     [item.id],
   );
   if (row === undefined) return undefined;
-  if (row.mastery_property === null) {
-    throw new Error(`weapon "${item.slug}" has no mastery property, which the pack format cannot express`);
-  }
 
   const properties = await pack.port.all<{ code: WeaponProperty }>(
     `SELECT w.code
@@ -897,7 +895,7 @@ async function weapon(pack: Pack, item: { id: number; slug: string }): Promise<P
     category: row.category,
     damageDice: row.damage_dice,
     damageType: row.damage_type,
-    masteryProperty: row.mastery_property,
+    masteryProperty: orUndefined(row.mastery_property),
     properties: orAbsent(properties.map((property) => property.code)),
   };
 }

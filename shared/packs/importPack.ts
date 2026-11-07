@@ -1111,13 +1111,13 @@ async function writeWeapon(
   if (weapon.damageType === undefined) {
     throw new PackImportError([`weapon "${itemKey}" has no damage type`]);
   }
-  if (weapon.masteryProperty === undefined) {
-    throw new PackImportError([`weapon "${itemKey}" has no mastery property`]);
-  }
 
   const categoryId = await requiredCode(port, 'weapon_category', weapon.category);
   const damageTypeId = await requiredCode(port, 'damage_type', weapon.damageType);
-  const masteryId = await requiredCode(port, 'mastery_property', weapon.masteryProperty);
+  let masteryId: number | null = null;
+  if (weapon.masteryProperty !== undefined) {
+    masteryId = await requiredCode(port, 'mastery_property', weapon.masteryProperty);
+  }
 
   const existing = await port.get<{ item_id: number }>(
     'SELECT item_id FROM weapon WHERE item_id = ?',

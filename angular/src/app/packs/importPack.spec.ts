@@ -333,13 +333,13 @@ describe('importing a pack', () => {
     expect(await rowCount('damage_modifier')).toBe(1);
   });
 
-  it('refuses a weapon with no mastery property, which the file cannot express', async () => {
-    const bad: PackFile = {
+  it('stores a weapon with no mastery property as NULL', async () => {
+    const pack: PackFile = {
       ...anEnvelope(),
       items: [
         {
-          key: 'broken-blade',
-          name: 'Broken Blade',
+          key: 'plain-blade',
+          name: 'Plain Blade',
           weight: 1,
           costCp: 100,
           requiresAttunement: false,
@@ -347,14 +347,50 @@ describe('importing a pack', () => {
             category: 'simple_melee',
             damageDice: '1d6',
             damageType: 'slashing',
-            masteryProperty: undefined as never,
           },
         },
       ],
     };
 
-    await expect(importPack(port, bad)).rejects.toThrow(/has no mastery property/);
-    expect(await rowCount('item')).toBe(0);
+    await importPack(port, pack);
+
+    const row = await port.get<{ mastery_property_id: number | null }>(
+      `SELECT w.mastery_property_id
+         FROM weapon w
+         JOIN item i ON i.id = w.item_id
+        WHERE i.slug = 'plain-blade'`,
+    );
+    expect(row).toEqual({ mastery_property_id: null });
+
+    const exported = JSON.parse(await exportPack(port, 'my-homebrew'));
+    expect(exported.items[0].weapon).not.toHaveProperty('masteryProperty');
+  });
+
+  it('round-trips the delivery and recharge values the schema allows', async () => {
+    const pack: PackFile = {
+      ...anEnvelope(),
+      spells: [
+        aSpell({
+          key: 'beacon',
+          name: 'Beacon',
+          damageTypes: [{ damageType: 'radiant', selection: 'fixed', delivery: 'beam' }],
+        }),
+      ],
+      effects: [
+        {
+          key: 'beacon-glow',
+          name: 'Beacon Glow',
+          baseValue: 0,
+          recharge: { interval: 'permanent', usesMax: 1 },
+        },
+      ],
+    };
+
+    await importPack(port, pack);
+
+    const exported = JSON.parse(await exportPack(port, 'my-homebrew'));
+    expect(exported.spells[0].damageTypes[0].delivery).toBe('beam');
+    expect(exported.effects[0].recharge.interval).toBe('permanent');
   });
 
   it('resolves a reference to another installed pack by its slug', async () => {
