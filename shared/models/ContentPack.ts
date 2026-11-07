@@ -43,7 +43,7 @@ export type ArmourType = 'light' | 'medium' | 'heavy' | 'shield';
 export type WeaponCategory = 'simple_melee' | 'simple_ranged' | 'martial_melee' | 'martial_ranged';
 export type WeaponProperty =
   | 'finesse' | 'versatile' | 'heavy' | 'light' | 'loading'
-  | 'reach' | 'thrown' | 'two_handed' | 'ammunition';
+  | 'reach' | 'thrown' | 'two_handed' | 'ammunition' | 'improvised';
 export type MasteryProperty =
   | 'cleave' | 'graze' | 'nick' | 'push' | 'sap' | 'slow' | 'topple' | 'vex';
 export type SpellSchool =

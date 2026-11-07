@@ -394,6 +394,9 @@ expect('weapon_mastery and fighting_style picks recorded',
 expectFail('medium rejected as a weapon property', () =>
   ins(`INSERT INTO weapon_property (code) VALUES ('medium')`));
 
+expect('improvised is seeded as a weapon property',
+  count('weapon_property', 'code = ?', 'improvised'), 1);
+
 // ---- Species-granted spells are derived, so class_id can stay NOT NULL ----
 ins(`INSERT INTO species_variant (source_id, slug, species_id, variant_kind, name) VALUES (?, 'high-elf', ?, 'lineage', 'High Elf')`, src, elf);
 const highElf = idOf('species_variant', 'high-elf');

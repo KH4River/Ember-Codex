@@ -784,7 +784,7 @@ CREATE TABLE weapon_property (
   id   INTEGER PRIMARY KEY,
   code TEXT    NOT NULL UNIQUE
        CHECK (code IN ('finesse', 'versatile', 'heavy', 'light', 'loading',
-                       'reach', 'thrown', 'two_handed', 'ammunition'))
+                       'reach', 'thrown', 'two_handed', 'ammunition', 'improvised'))
 ) STRICT;
 
 -- MASTERY properties: separate from weapon proficiency, which still
@@ -1149,7 +1149,8 @@ INSERT INTO weapon_property (code) VALUES
   ('reach'),
   ('thrown'),
   ('two_handed'),
-  ('ammunition');
+  ('ammunition'),
+  ('improvised');
 
 INSERT INTO mastery_property (code) VALUES
   ('cleave'),
