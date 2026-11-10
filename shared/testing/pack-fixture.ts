@@ -60,6 +60,14 @@ const fighter: PackClass = {
           name: 'Improved Critical',
           description: 'Your weapon attacks score a critical hit on a roll of 19 or 20.',
           level: 3,
+          effects: [
+            {
+              key: 'improved-critical-threshold',
+              name: 'Improved Critical (threshold)',
+              baseValue: 0,
+              crit: { threshold: 19 },
+            },
+          ],
         },
       ],
     },
@@ -231,7 +239,14 @@ export const packFixture: PackFile = {
       materialCostCp: 0,
       description: 'A falling star burns where it lands.',
       damageTypes: [{ damageType: 'fire', selection: 'choice', delivery: 'cast' }],
-      effects: [{ key: 'starfall-glow', name: 'Starfall Glow', baseValue: 0 }],
+      effects: [
+        {
+          key: 'starfall-glow',
+          name: 'Starfall Glow',
+          baseValue: 0,
+          darkvision: { rangeFeet: 60 },
+        },
+      ],
       damageModifiers: [
         {
           damageType: 'fire',
@@ -261,10 +276,19 @@ export const packFixture: PackFile = {
       key: 'ancestral-boon',
       name: 'Ancestral Boon',
       baseValue: 0,
+      speed: { speedDelta: 10 },
+      languages: ['old-tongue'],
+      conditionModifiers: [{ condition: 'frightened', relation: 'immune' }],
       modifiers: [
         { ability: 'CON', amount: 0, maxScore: 25, maxDelta: 2 },
         { ability: 'DEX', amount: 1, maxScore: 20, setsToPersonalMax: true },
       ],
+    },
+    {
+      key: 'giants-blood',
+      name: "Giant's Blood",
+      baseValue: 0,
+      size: 'large',
     },
   ],
   items: [
@@ -302,6 +326,8 @@ export const packFixture: PackFile = {
           key: 'dagger-warmth',
           name: 'Dagger Warmth',
           baseValue: 0,
+          weaponProperties: ['thrown'],
+          conditionModifiers: [{ condition: 'marked', relation: 'immune' }],
           rollModifiers: [{ scope: 'ability_check', kind: 'flat', amount: 1 }],
         },
       ],
@@ -415,6 +441,8 @@ INSERT INTO effect (source_id, slug, name, base_value) VALUES
   ((SELECT id FROM source WHERE slug = 'my-homebrew'), 'alert-initiative', 'Alert (initiative)', 0),
   ((SELECT id FROM source WHERE slug = 'my-homebrew'), 'ember-brand-fire', 'Ember Brand (fire)', 0),
   ((SELECT id FROM source WHERE slug = 'my-homebrew'), 'ancestral-boon', 'Ancestral Boon', 0),
+  ((SELECT id FROM source WHERE slug = 'my-homebrew'), 'giants-blood', 'Giant''s Blood', 0),
+  ((SELECT id FROM source WHERE slug = 'my-homebrew'), 'improved-critical-threshold', 'Improved Critical (threshold)', 0),
   ((SELECT id FROM source WHERE slug = 'my-homebrew'), 'second-wind-heal', 'Second Wind (heal)', 1),
   ((SELECT id FROM source WHERE slug = 'my-homebrew'), 'starfall-glow', 'Starfall Glow', 0),
   ((SELECT id FROM source WHERE slug = 'my-homebrew'), 'dagger-warmth', 'Dagger Warmth', 0);
@@ -437,6 +465,32 @@ INSERT INTO effect_recharge (effect_id, interval, uses_max, short_rest_returns) 
 
 INSERT INTO effect_recharge_level_bonus (effect_id, class_level, uses_bonus) VALUES
   ((SELECT id FROM effect WHERE slug = 'second-wind-heal'), 2, 1);
+
+INSERT INTO effect_speed (effect_id, speed_delta) VALUES
+  ((SELECT id FROM effect WHERE slug = 'ancestral-boon'), 10);
+
+INSERT INTO effect_darkvision (effect_id, range_feet) VALUES
+  ((SELECT id FROM effect WHERE slug = 'starfall-glow'), 60);
+
+INSERT INTO effect_crit (effect_id, threshold) VALUES
+  ((SELECT id FROM effect WHERE slug = 'improved-critical-threshold'), 19);
+
+INSERT INTO effect_size (effect_id, size) VALUES
+  ((SELECT id FROM effect WHERE slug = 'giants-blood'), 'large');
+
+INSERT INTO effect_weapon_property (effect_id, property_id) VALUES
+  ((SELECT id FROM effect WHERE slug = 'dagger-warmth'),
+   (SELECT id FROM weapon_property WHERE code = 'thrown'));
+
+INSERT INTO effect_language (effect_id, language_id) VALUES
+  ((SELECT id FROM effect WHERE slug = 'ancestral-boon'),
+   (SELECT id FROM language WHERE slug = 'old-tongue'));
+
+INSERT INTO effect_condition_modifier (effect_id, condition_id, relation) VALUES
+  ((SELECT id FROM effect WHERE slug = 'ancestral-boon'),
+   (SELECT id FROM condition WHERE slug = 'frightened'), 'immune'),
+  ((SELECT id FROM effect WHERE slug = 'dagger-warmth'),
+   (SELECT id FROM condition WHERE slug = 'marked'), 'immune');
 
 INSERT INTO feat_effect (feat_id, effect_id) VALUES
   ((SELECT id FROM feat WHERE slug = 'alert'), (SELECT id FROM effect WHERE slug = 'alert-initiative')),
@@ -530,7 +584,9 @@ INSERT INTO feature (source_id, slug, name, description, level, subclass_id) VAL
    (SELECT id FROM subclass WHERE slug = 'champion'));
 
 INSERT INTO feature_effect (feature_id, effect_id) VALUES
-  ((SELECT id FROM feature WHERE slug = 'second-wind'), (SELECT id FROM effect WHERE slug = 'second-wind-heal'));
+  ((SELECT id FROM feature WHERE slug = 'second-wind'), (SELECT id FROM effect WHERE slug = 'second-wind-heal')),
+  ((SELECT id FROM feature WHERE slug = 'improved-critical'),
+   (SELECT id FROM effect WHERE slug = 'improved-critical-threshold'));
 
 INSERT INTO granted_spell (feature_id, spell_id, grant_level, replaceable) VALUES
   ((SELECT id FROM feature WHERE slug = 'star-favor'), (SELECT id FROM spell WHERE slug = 'starfall'), 5, 0),

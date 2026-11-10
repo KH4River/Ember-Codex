@@ -467,6 +467,25 @@ function collectEffect(
       `${atPath}.modifiers[${index}].ability`,
     );
   }
+  for (const [index, property] of (effect.weaponProperties ?? []).entries()) {
+    references.addVocabularyReference(
+      'weapon_property',
+      property,
+      heldBy,
+      `${atPath}.weaponProperties[${index}]`,
+    );
+  }
+  for (const [index, language] of (effect.languages ?? []).entries()) {
+    references.addPackReference('language', language, heldBy, `${atPath}.languages[${index}]`);
+  }
+  for (const [index, modifier] of (effect.conditionModifiers ?? []).entries()) {
+    references.addPackReference(
+      'condition',
+      modifier.condition,
+      heldBy,
+      `${atPath}.conditionModifiers[${index}].condition`,
+    );
+  }
 }
 
 function collectDamageModifiers(

@@ -275,9 +275,34 @@ export interface PackEffect {
   description?: string;
   /** A constant this effect contributes: the 10 in Unarmored Defense. */
   baseValue: number;
+  speed?: PackEffectSpeed;
+  darkvision?: PackEffectDarkvision;
+  crit?: PackEffectCrit;
+  size?: SpeciesSize;
+  weaponProperties?: WeaponProperty[];
+  languages?: Ref[];
+  conditionModifiers?: PackConditionModifier[];
   rollModifiers?: PackRollModifier[];
   recharge?: PackRecharge;
   modifiers?: PackAbilityModifier[];
+}
+
+export interface PackEffectSpeed {
+  speedDelta: number;
+}
+
+export interface PackEffectDarkvision {
+  rangeFeet: number;
+}
+
+export interface PackEffectCrit {
+  /** The d20 number that scores a critical hit. */
+  threshold: number;
+}
+
+export interface PackConditionModifier {
+  condition: Ref;
+  relation: DamageRelation;
 }
 
 export interface PackRollModifier {

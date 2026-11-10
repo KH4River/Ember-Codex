@@ -122,7 +122,7 @@ describe('importing a pack', () => {
     expect(await rowCount('skill')).toBe(1);
     expect(await rowCount('species_variant')).toBe(1);
     expect(await rowCount('feature')).toBe(6);
-    expect(await rowCount('effect')).toBe(6);
+    expect(await rowCount('effect')).toBe(8);
     expect(await rowCount('damage_modifier')).toBe(1);
   });
 
@@ -165,6 +165,21 @@ describe('importing a pack', () => {
         ['skyriding'],
       );
       expect(second).toEqual({ id: first!.id, name: 'Skyriding (revised)' });
+    });
+
+    it('drops an effect child the file no longer names', async () => {
+      await importPack(port, packFixture);
+      await importPack(port, {
+        ...packFixture,
+        effects: [
+          { key: 'ancestral-boon', name: 'Ancestral Boon', baseValue: 0 },
+          { key: 'giants-blood', name: "Giant's Blood", baseValue: 0 },
+        ],
+      });
+
+      expect(await rowCount('effect_speed')).toBe(0);
+      expect(await rowCount('effect_size')).toBe(0);
+      expect(await rowCount('effect_language')).toBe(0);
     });
 
     it('refuses to redefine a global vocabulary slug before writing anything', async () => {

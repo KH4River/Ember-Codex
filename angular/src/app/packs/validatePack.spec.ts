@@ -250,6 +250,33 @@ describe('pack validation', () => {
       ]);
     });
 
+    it('checks the weapon properties, languages and conditions an effect names', async () => {
+      const file = {
+        ...aPackFile(),
+        effects: [
+          {
+            key: 'ward',
+            name: 'Ward',
+            baseValue: 0,
+            weaponProperties: ['nope' as never],
+            languages: ['nowhere'],
+            conditionModifiers: [{ condition: 'no-such-condition', relation: 'immune' }],
+          },
+        ],
+      };
+      const problems = await problemsFoundIn(file);
+      expect(problems).toHaveLength(3);
+      expect(problems).toContain(
+        'nope is referenced by effect "ward" at effects[0].weaponProperties[0] but is not a known weapon property',
+      );
+      expect(problems).toContain(
+        'language "nowhere" is referenced by effect "ward" at effects[0].languages[0] but is not in this pack',
+      );
+      expect(problems).toContain(
+        'condition "no-such-condition" is referenced by effect "ward" at effects[0].conditionModifiers[0].condition but is not in this pack',
+      );
+    });
+
     it('checks the damage type inside a feature damage modifier', async () => {
       const file = {
         ...aPackFile(),

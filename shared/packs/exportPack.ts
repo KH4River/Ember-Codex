@@ -2,6 +2,7 @@ import type { DatabasePort } from '../db/DatabasePort';
 import type {
   AbilityCode,
   ArmourType,
+  DamageRelation,
   FeatCategory,
   MasteryProperty,
   PackAbilityModifier,
@@ -10,8 +11,12 @@ import type {
   PackBackground,
   PackClass,
   PackCondition,
+  PackConditionModifier,
   PackDamageModifierRef,
   PackEffect,
+  PackEffectCrit,
+  PackEffectDarkvision,
+  PackEffectSpeed,
   PackFeat,
   PackFeature,
   PackFile,
@@ -693,10 +698,103 @@ async function effect(pack: Pack, row: EffectRow): Promise<PackEffect> {
     name: row.name,
     description: orUndefined(row.description),
     baseValue: row.base_value,
+    speed: await effectSpeed(pack, row.id),
+    darkvision: await effectDarkvision(pack, row.id),
+    crit: await effectCrit(pack, row.id),
+    size: await effectSize(pack, row.id),
+    weaponProperties: orAbsent(await effectWeaponProperties(pack, row.id)),
+    languages: orAbsent(await effectLanguages(pack, row.id)),
+    conditionModifiers: orAbsent(await effectConditionModifiers(pack, row.id)),
     rollModifiers: orAbsent(await rollModifiers(pack, row.id)),
     recharge: await recharge(pack, row.id),
     modifiers: orAbsent(await effectModifiers(pack, row.id)),
   };
+}
+
+async function effectSpeed(pack: Pack, effectId: number): Promise<PackEffectSpeed | undefined> {
+  const row = await pack.port.get<{ speed_delta: number }>(
+    'SELECT speed_delta FROM effect_speed WHERE effect_id = ?',
+    [effectId],
+  );
+  if (row === undefined) return undefined;
+  return { speedDelta: row.speed_delta };
+}
+
+async function effectDarkvision(
+  pack: Pack,
+  effectId: number,
+): Promise<PackEffectDarkvision | undefined> {
+  const row = await pack.port.get<{ range_feet: number }>(
+    'SELECT range_feet FROM effect_darkvision WHERE effect_id = ?',
+    [effectId],
+  );
+  if (row === undefined) return undefined;
+  return { rangeFeet: row.range_feet };
+}
+
+async function effectCrit(pack: Pack, effectId: number): Promise<PackEffectCrit | undefined> {
+  const row = await pack.port.get<{ threshold: number }>(
+    'SELECT threshold FROM effect_crit WHERE effect_id = ?',
+    [effectId],
+  );
+  if (row === undefined) return undefined;
+  return { threshold: row.threshold };
+}
+
+async function effectSize(pack: Pack, effectId: number): Promise<SpeciesSize | undefined> {
+  const row = await pack.port.get<{ size: SpeciesSize }>(
+    'SELECT size FROM effect_size WHERE effect_id = ?',
+    [effectId],
+  );
+  if (row === undefined) return undefined;
+  return row.size;
+}
+
+async function effectWeaponProperties(pack: Pack, effectId: number): Promise<WeaponProperty[]> {
+  const rows = await pack.port.all<{ code: WeaponProperty }>(
+    `SELECT wp.code
+       FROM effect_weapon_property p JOIN weapon_property wp ON wp.id = p.property_id
+      WHERE p.effect_id = ?
+      ORDER BY wp.code`,
+    [effectId],
+  );
+  return rows.map((row) => row.code);
+}
+
+async function effectLanguages(pack: Pack, effectId: number): Promise<string[]> {
+  const rows = await pack.port.all<{ slug: string; owner: string | null }>(
+    `SELECT l.slug, o.slug AS owner
+       FROM effect_language el
+       JOIN language l ON l.id = el.language_id
+       LEFT JOIN source o ON o.id = l.source_id
+      WHERE el.effect_id = ?
+      ORDER BY o.slug, l.slug`,
+    [effectId],
+  );
+  return rows.map((row) => reference(pack, row));
+}
+
+async function effectConditionModifiers(
+  pack: Pack,
+  effectId: number,
+): Promise<PackConditionModifier[]> {
+  const rows = await pack.port.all<{
+    slug: string;
+    owner: string | null;
+    relation: DamageRelation;
+  }>(
+    `SELECT c.slug, o.slug AS owner, m.relation
+       FROM effect_condition_modifier m
+       JOIN condition c ON c.id = m.condition_id
+       LEFT JOIN source o ON o.id = c.source_id
+      WHERE m.effect_id = ?
+      ORDER BY o.slug, c.slug, m.relation`,
+    [effectId],
+  );
+  return rows.map((row) => ({
+    condition: reference(pack, row),
+    relation: row.relation,
+  }));
 }
 
 async function rollModifiers(pack: Pack, effectId: number): Promise<PackRollModifier[]> {

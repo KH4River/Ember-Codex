@@ -1008,12 +1008,20 @@ async function writeEffectSatellites(
   port: DatabasePort,
   effect: PackEffect,
   ids: PackIds,
+  sourceId: number,
 ): Promise<void> {
   const effectId = ids.effects.get(effect.key)!;
 
   await writeRollModifiers(port, effect, effectId);
   await writeRecharge(port, effect, effectId);
   await writeAbilityModifiers(port, effect, effectId);
+  await writeSpeed(port, effect, effectId);
+  await writeDarkvision(port, effect, effectId);
+  await writeCrit(port, effect, effectId);
+  await writeSize(port, effect, effectId);
+  await writeEffectWeaponProperties(port, effect, effectId);
+  await writeEffectLanguages(port, effect, effectId, sourceId);
+  await writeConditionModifiers(port, effect, effectId, sourceId);
 }
 
 async function writeRollModifiers(
@@ -1095,6 +1103,93 @@ async function writeAbilityModifiers(
         modifier.maxDelta ?? null,
         bool(modifier.setsToPersonalMax ?? false),
       ],
+    );
+  }
+}
+
+async function writeSpeed(port: DatabasePort, effect: PackEffect, effectId: number): Promise<void> {
+  await port.run('DELETE FROM effect_speed WHERE effect_id = ?', [effectId]);
+  if (effect.speed === undefined) return;
+  await port.run('INSERT INTO effect_speed (effect_id, speed_delta) VALUES (?, ?)', [
+    effectId,
+    effect.speed.speedDelta,
+  ]);
+}
+
+async function writeDarkvision(
+  port: DatabasePort,
+  effect: PackEffect,
+  effectId: number,
+): Promise<void> {
+  await port.run('DELETE FROM effect_darkvision WHERE effect_id = ?', [effectId]);
+  if (effect.darkvision === undefined) return;
+  await port.run('INSERT INTO effect_darkvision (effect_id, range_feet) VALUES (?, ?)', [
+    effectId,
+    effect.darkvision.rangeFeet,
+  ]);
+}
+
+async function writeCrit(port: DatabasePort, effect: PackEffect, effectId: number): Promise<void> {
+  await port.run('DELETE FROM effect_crit WHERE effect_id = ?', [effectId]);
+  if (effect.crit === undefined) return;
+  await port.run('INSERT INTO effect_crit (effect_id, threshold) VALUES (?, ?)', [
+    effectId,
+    effect.crit.threshold,
+  ]);
+}
+
+async function writeSize(port: DatabasePort, effect: PackEffect, effectId: number): Promise<void> {
+  await port.run('DELETE FROM effect_size WHERE effect_id = ?', [effectId]);
+  if (effect.size === undefined) return;
+  await port.run('INSERT INTO effect_size (effect_id, size) VALUES (?, ?)', [
+    effectId,
+    effect.size,
+  ]);
+}
+
+async function writeEffectWeaponProperties(
+  port: DatabasePort,
+  effect: PackEffect,
+  effectId: number,
+): Promise<void> {
+  await port.run('DELETE FROM effect_weapon_property WHERE effect_id = ?', [effectId]);
+  for (const property of effect.weaponProperties ?? []) {
+    const propertyId = await requiredCode(port, 'weapon_property', property);
+    await port.run('INSERT INTO effect_weapon_property (effect_id, property_id) VALUES (?, ?)', [
+      effectId,
+      propertyId,
+    ]);
+  }
+}
+
+async function writeEffectLanguages(
+  port: DatabasePort,
+  effect: PackEffect,
+  effectId: number,
+  sourceId: number,
+): Promise<void> {
+  await port.run('DELETE FROM effect_language WHERE effect_id = ?', [effectId]);
+  for (const language of effect.languages ?? []) {
+    const languageId = await requiredReference(port, 'language', language, sourceId);
+    await port.run('INSERT INTO effect_language (effect_id, language_id) VALUES (?, ?)', [
+      effectId,
+      languageId,
+    ]);
+  }
+}
+
+async function writeConditionModifiers(
+  port: DatabasePort,
+  effect: PackEffect,
+  effectId: number,
+  sourceId: number,
+): Promise<void> {
+  await port.run('DELETE FROM effect_condition_modifier WHERE effect_id = ?', [effectId]);
+  for (const modifier of effect.conditionModifiers ?? []) {
+    const conditionId = await requiredReference(port, 'condition', modifier.condition, sourceId);
+    await port.run(
+      'INSERT INTO effect_condition_modifier (effect_id, condition_id, relation) VALUES (?, ?, ?)',
+      [effectId, conditionId, modifier.relation],
     );
   }
 }
@@ -1337,7 +1432,7 @@ async function writeSatellites(
     await writeSpellSatellites(port, spell, ids);
   }
   for (const effect of effects) {
-    await writeEffectSatellites(port, effect, ids);
+    await writeEffectSatellites(port, effect, ids, sourceId);
   }
   await writeAmmunitionMarkers(port, file, ids);
   for (const item of file.items ?? []) {
