@@ -177,6 +177,7 @@ export interface PackClass {
   castingProgression: CastingProgression;
   grants?: PackGrant[];
   cantripCounts?: PackCantripCount[];
+  cantripDamageDice?: PackCantripDamageDice[];
   preparedCounts?: PackPreparedCount[];
   spellSlots?: PackSpellSlot[];
   slotRecovery: RestInterval | null;
@@ -199,6 +200,12 @@ export interface PackGrant {
 export interface PackCantripCount {
   level: number;
   cantrips: number;
+}
+
+export interface PackCantripDamageDice {
+  spell: Ref;
+  fromLevel: number;
+  dice: string;
 }
 
 export interface PackPreparedCount {

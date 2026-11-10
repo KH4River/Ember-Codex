@@ -800,6 +800,7 @@ async function writeClassSatellites(
 
   await writeGrants(port, classEntry, classId, blockers);
   await writeClassProgress(port, classEntry, classId);
+  await writeCantripDamageDice(port, classEntry, classId, sourceId);
   await writeClassProficiencies(port, classEntry, classId, sourceId);
   await writeClassSpells(port, classEntry, classId, sourceId);
 
@@ -847,6 +848,23 @@ async function writeClassProgress(
       classId,
       classEntry.slotRecovery,
     ]);
+  }
+}
+
+async function writeCantripDamageDice(
+  port: DatabasePort,
+  classEntry: PackClass,
+  classId: number,
+  sourceId: number,
+): Promise<void> {
+  await port.run('DELETE FROM cantrip_damage_dice WHERE class_id = ?', [classId]);
+  for (const entry of classEntry.cantripDamageDice ?? []) {
+    const spellId = await requiredReference(port, 'spell', entry.spell, sourceId);
+    await port.run(
+      `INSERT INTO cantrip_damage_dice (class_id, spell_id, from_level, dice)
+       VALUES (?, ?, ?, ?)`,
+      [classId, spellId, entry.fromLevel, entry.dice],
+    );
   }
 }
 

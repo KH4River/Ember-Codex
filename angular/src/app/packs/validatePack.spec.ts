@@ -196,6 +196,18 @@ describe('pack validation', () => {
       ]);
     });
 
+    it('checks the spell every cantrip damage row names', async () => {
+      const file = {
+        ...aPackFile(),
+        classes: [
+          aClass({ cantripDamageDice: [{ spell: 'fireblet', fromLevel: 1, dice: '1d8' }] }),
+        ],
+      };
+      expect(await problemsFoundIn(file)).toEqual([
+        'spell "fireblet" is referenced by class "fighter" at classes[0].cantripDamageDice[0].spell but is not in this pack',
+      ]);
+    });
+
     it('names the ability when a skill asks for one that does not exist', async () => {
       const file = { ...aPackFile(), skills: [aSkill({ ability: 'GRIT' as never })] };
       expect(await problemsFoundIn(file)).toEqual([

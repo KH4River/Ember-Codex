@@ -85,6 +85,10 @@ const starPriest: PackClass = {
     { level: 1, cantrips: 3 },
     { level: 10, cantrips: 4 },
   ],
+  cantripDamageDice: [
+    { spell: 'word-of-light', fromLevel: 1, dice: '1d8' },
+    { spell: 'word-of-light', fromLevel: 5, dice: '2d8' },
+  ],
   preparedCounts: [
     { level: 1, spellLevel: 1, maxPrepared: 4 },
     { level: 3, spellLevel: 2, maxPrepared: 6 },
@@ -542,6 +546,12 @@ INSERT INTO class_slot_recovery (class_id, interval) VALUES
 INSERT INTO class_cantrip_count (class_id, class_level, cantrips) VALUES
   ((SELECT id FROM class WHERE slug = 'star-priest'), 1, 3),
   ((SELECT id FROM class WHERE slug = 'star-priest'), 10, 4);
+
+INSERT INTO cantrip_damage_dice (class_id, spell_id, from_level, dice) VALUES
+  ((SELECT id FROM class WHERE slug = 'star-priest'),
+   (SELECT id FROM spell WHERE slug = 'word-of-light'), 1, '1d8'),
+  ((SELECT id FROM class WHERE slug = 'star-priest'),
+   (SELECT id FROM spell WHERE slug = 'word-of-light'), 5, '2d8');
 
 INSERT INTO class_prepared_count (class_id, class_level, spell_level, max_prepared) VALUES
   ((SELECT id FROM class WHERE slug = 'star-priest'), 1, 1, 4),

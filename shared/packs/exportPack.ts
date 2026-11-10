@@ -390,6 +390,7 @@ async function classes(pack: Pack): Promise<PackClass[]> {
       castingProgression: row.casting_progression,
       grants: orAbsent(await grants(pack, row.id)),
       cantripCounts: orAbsent(await cantripCounts(pack, row.id)),
+      cantripDamageDice: orAbsent(await cantripDamageDice(pack, row.id)),
       preparedCounts: orAbsent(await preparedCounts(pack, row.id)),
       spellSlots: orAbsent(await spellSlots(pack, row.id)),
       slotRecovery: await slotRecovery(pack, row.id),
@@ -431,6 +432,31 @@ async function cantripCounts(
       ORDER BY class_level`,
     [classId],
   );
+}
+
+async function cantripDamageDice(
+  pack: Pack,
+  classId: number,
+): Promise<NonNullable<PackClass['cantripDamageDice']>> {
+  const rows = await pack.port.all<{
+    slug: string;
+    owner: string | null;
+    from_level: number;
+    dice: string;
+  }>(
+    `SELECT sp.slug, o.slug AS owner, d.from_level, d.dice
+       FROM cantrip_damage_dice d
+       JOIN spell sp ON sp.id = d.spell_id
+       LEFT JOIN source o ON o.id = sp.source_id
+      WHERE d.class_id = ?
+      ORDER BY o.slug, sp.slug, d.from_level`,
+    [classId],
+  );
+  return rows.map((row) => ({
+    spell: reference(pack, row),
+    fromLevel: row.from_level,
+    dice: row.dice,
+  }));
 }
 
 async function preparedCounts(

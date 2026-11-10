@@ -296,6 +296,14 @@ function collectClass(references: ReferenceCollector, classEntry: PackClass, ind
 
   collectProficiencies(references, heldBy, atPath, classEntry);
   references.addPackReferences('spell', classEntry.spells, heldBy, `${atPath}.spells`);
+  for (const [index, damage] of (classEntry.cantripDamageDice ?? []).entries()) {
+    references.addPackReference(
+      'spell',
+      damage.spell,
+      heldBy,
+      `${atPath}.cantripDamageDice[${index}].spell`,
+    );
+  }
   collectFeatures(references, classEntry.features, `${atPath}.features`);
 
   for (const [subclassIndex, subclass] of (classEntry.subclasses ?? []).entries()) {
