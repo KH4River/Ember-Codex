@@ -15,6 +15,7 @@ const READ_ONLY = false;
 export class CapacitorSqliteDriver implements DatabasePort {
   private readonly sqlite = new SQLiteConnection(CapacitorSQLite);
   private connection?: SQLiteDBConnection;
+  private inTransaction = false;
 
   async open(): Promise<void> {
     if (this.connection) {
@@ -42,14 +43,18 @@ export class CapacitorSqliteDriver implements DatabasePort {
   }
 
   async exec(sql: string): Promise<void> {
-    // transaction=false: the migration runner issues its own BEGIN/COMMIT
-    // around each migration, and the plugin's implicit transaction around
-    // execute() would collide with it.
+    if (await this.transaction(sql)) {
+      return;
+    }
+    // transaction=false: the migration runner and importer issue their own
+    // BEGIN/COMMIT, and the plugin's implicit transaction would collide.
     await this.requireConnection().execute(sql, false);
   }
 
   async run(sql: string, params: readonly unknown[] = []): Promise<void> {
-    await this.requireConnection().run(sql, [...params]);
+    // The plugin wraps every statement in its own transaction by default, and
+    // Android refuses to nest one inside an explicit BEGIN.
+    await this.requireConnection().run(sql, [...params], !this.inTransaction);
   }
 
   async all<T>(sql: string, params: readonly unknown[] = []): Promise<T[]> {
@@ -68,6 +73,29 @@ export class CapacitorSqliteDriver implements DatabasePort {
     }
     await this.sqlite.closeConnection(DATABASE, READ_ONLY);
     this.connection = undefined;
+    this.inTransaction = false;
+  }
+
+  /** The plugin exposes transaction control as calls, not SQL, and Android
+   *  tracks a raw BEGIN either way. Route the three statements through them. */
+  private async transaction(sql: string): Promise<boolean> {
+    const command = sql.trim().toUpperCase();
+    if (command === 'BEGIN') {
+      await this.requireConnection().beginTransaction();
+      this.inTransaction = true;
+      return true;
+    }
+    if (command === 'COMMIT') {
+      await this.requireConnection().commitTransaction();
+      this.inTransaction = false;
+      return true;
+    }
+    if (command === 'ROLLBACK') {
+      await this.requireConnection().rollbackTransaction();
+      this.inTransaction = false;
+      return true;
+    }
+    return false;
   }
 
   private requireConnection(): SQLiteDBConnection {
