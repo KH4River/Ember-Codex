@@ -1,4 +1,15 @@
 import type { DatabasePort } from '../db/DatabasePort';
+import {
+  charactersUsing,
+  usagesOfRemovedRows,
+  type Usage,
+} from '../db/repositories/character-usage';
+import {
+  findPackSource,
+  markSuperseded,
+  upsertPackSource,
+  type PackSourceRow,
+} from '../db/repositories/sources';
 import type {
   PackArmour,
   PackBackground,
@@ -61,21 +72,12 @@ function bool(value: boolean): number {
   return 0;
 }
 
-interface SourceRow {
-  id: number;
-  slug: string;
-}
-
-async function findSource(port: DatabasePort, slug: string): Promise<SourceRow | undefined> {
-  return port.get<SourceRow>('SELECT id, slug FROM source WHERE slug = ?', [slug]);
-}
-
 /** Replace keeps the file's key; keep-both needs a different one, chosen by
  *  the user rather than derived, because it appears in shared references. */
 async function targetSlugFor(
   port: DatabasePort,
   file: PackFile,
-  existing: SourceRow | undefined,
+  existing: PackSourceRow | undefined,
   options: ImportOptions,
 ): Promise<string> {
   const mode = options.mode ?? 'replace';
@@ -93,47 +95,10 @@ async function targetSlugFor(
       `the new key must differ from "${existing.slug}"; choose replace to update it in place`,
     ]);
   }
-  if (await findSource(port, newSlug)) {
+  if (await findPackSource(port, newSlug)) {
     throw new PackImportError([`a pack named "${newSlug}" is already installed`]);
   }
   return newSlug;
-}
-
-async function writeSource(
-  port: DatabasePort,
-  file: PackFile,
-  existing: SourceRow | undefined,
-  slug: string,
-): Promise<number> {
-  if (existing && existing.slug === slug) {
-    await port.run(
-      `UPDATE source
-          SET name = ?, version = ?, license = ?, attribution = ?,
-              imported_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now'),
-              superseded_by = NULL
-        WHERE id = ?`,
-      [
-        file.source.name,
-        file.source.version,
-        file.source.license,
-        file.source.attribution,
-        existing.id,
-      ],
-    );
-    return existing.id;
-  }
-
-  await port.run(
-    'INSERT INTO source (slug, name, version, license, attribution) VALUES (?, ?, ?, ?, ?)',
-    [
-      slug,
-      file.source.name,
-      file.source.version,
-      file.source.license,
-      file.source.attribution,
-    ],
-  );
-  return (await findSource(port, slug))!.id;
 }
 
 interface PackIds {
@@ -635,21 +600,6 @@ async function writeItems(
       ),
     );
   }
-}
-
-interface Usage {
-  character: string;
-  via: string;
-}
-
-async function charactersUsing(
-  port: DatabasePort,
-  sql: string,
-  params: readonly unknown[],
-  via: string,
-): Promise<Usage[]> {
-  const rows = await port.all<{ character: string }>(sql, params);
-  return rows.map((row) => ({ character: row.character, via }));
 }
 
 async function charactersUsingGrantSlot(
@@ -1458,240 +1408,17 @@ async function writeSatellites(
   }
 }
 
-interface UsageQuery {
-  sql: string;
-  via: string;
-}
-
-/** Every character table that can point at a keyed row. A missing entry would
- *  let a removal discard player state without a blocker. */
-const USAGE_QUERIES: Record<KeyedTable, readonly UsageQuery[]> = {
-  species: [
-    {
-      sql: 'SELECT name AS character FROM player_character WHERE species_id = ?',
-      via: 'player_character',
-    },
-    {
-      sql: `SELECT c.name AS character
-              FROM character_damage_modifier dm
-              JOIN player_character c ON c.id = dm.character_id
-             WHERE dm.species_id = ?`,
-      via: 'character_damage_modifier',
-    },
-  ],
-  species_variant: [
-    {
-      sql: 'SELECT name AS character FROM player_character WHERE variant_id = ?',
-      via: 'player_character',
-    },
-    {
-      sql: `SELECT c.name AS character
-              FROM character_damage_modifier dm
-              JOIN player_character c ON c.id = dm.character_id
-             WHERE dm.variant_id = ?`,
-      via: 'character_damage_modifier',
-    },
-  ],
-  background: [
-    {
-      sql: 'SELECT name AS character FROM player_character WHERE background_id = ?',
-      via: 'player_character',
-    },
-  ],
-  class: [
-    {
-      sql: `SELECT c.name AS character
-              FROM character_class cc
-              JOIN player_character c ON c.id = cc.character_id
-             WHERE cc.class_id = ?`,
-      via: 'character_class',
-    },
-    {
-      sql: `SELECT c.name AS character
-              FROM character_spell s
-              JOIN player_character c ON c.id = s.character_id
-             WHERE s.class_id = ?`,
-      via: 'character_spell',
-    },
-    {
-      sql: `SELECT c.name AS character
-              FROM character_cantrip s
-              JOIN player_character c ON c.id = s.character_id
-             WHERE s.class_id = ?`,
-      via: 'character_cantrip',
-    },
-    {
-      sql: `SELECT c.name AS character
-              FROM character_grant_pick p
-              JOIN player_character c ON c.id = p.character_id
-             WHERE p.class_id = ?`,
-      via: 'character_grant_pick',
-    },
-  ],
-  subclass: [
-    {
-      sql: `SELECT c.name AS character
-              FROM character_class cc
-              JOIN player_character c ON c.id = cc.character_id
-             WHERE cc.subclass_id = ?`,
-      via: 'character_class',
-    },
-  ],
-  feat: [
-    {
-      sql: `SELECT c.name AS character
-              FROM character_grant_pick p
-              JOIN player_character c ON c.id = p.character_id
-             WHERE p.feat_id = ?`,
-      via: 'character_grant_pick',
-    },
-    {
-      sql: `SELECT c.name AS character
-              FROM character_origin_feat f
-              JOIN player_character c ON c.id = f.character_id
-             WHERE f.feat_id = ?`,
-      via: 'character_origin_feat',
-    },
-    {
-      sql: `SELECT c.name AS character
-              FROM character_epic_boon e
-              JOIN player_character c ON c.id = e.character_id
-             WHERE e.feat_id = ?`,
-      via: 'character_epic_boon',
-    },
-  ],
-  feature: [
-    {
-      sql: `SELECT c.name AS character
-              FROM character_damage_modifier dm
-              JOIN player_character c ON c.id = dm.character_id
-             WHERE dm.feature_id = ?`,
-      via: 'character_damage_modifier',
-    },
-    {
-      sql: `SELECT c.name AS character
-              FROM character_granted_spell g
-              JOIN player_character c ON c.id = g.character_id
-             WHERE g.feature_id = ?`,
-      via: 'character_granted_spell',
-    },
-  ],
-  spell: [
-    {
-      sql: `SELECT c.name AS character
-              FROM character_spell s
-              JOIN player_character c ON c.id = s.character_id
-             WHERE s.spell_id = ?`,
-      via: 'character_spell',
-    },
-    {
-      sql: `SELECT c.name AS character
-              FROM character_cantrip s
-              JOIN player_character c ON c.id = s.character_id
-             WHERE s.spell_id = ?`,
-      via: 'character_cantrip',
-    },
-    {
-      sql: `SELECT c.name AS character
-              FROM character_granted_spell g
-              JOIN player_character c ON c.id = g.character_id
-             WHERE g.spell_id = ?`,
-      via: 'character_granted_spell',
-    },
-  ],
-  effect: [
-    {
-      sql: `SELECT c.name AS character
-              FROM character_effect_uses e
-              JOIN player_character c ON c.id = e.character_id
-             WHERE e.effect_id = ?`,
-      via: 'character_effect_uses',
-    },
-  ],
-  item: [
-    {
-      sql: `SELECT c.name AS character
-              FROM character_item i
-              JOIN player_character c ON c.id = i.character_id
-             WHERE i.item_id = ?`,
-      via: 'character_item',
-    },
-    {
-      sql: `SELECT c.name AS character
-              FROM character_grant_pick p
-              JOIN player_character c ON c.id = p.character_id
-             WHERE p.item_id = ?`,
-      via: 'character_grant_pick',
-    },
-  ],
-  skill: [
-    {
-      sql: `SELECT c.name AS character
-              FROM character_skill s
-              JOIN player_character c ON c.id = s.character_id
-             WHERE s.skill_id = ?`,
-      via: 'character_skill',
-    },
-  ],
-  tool: [
-    {
-      sql: `SELECT c.name AS character
-              FROM character_tool t
-              JOIN player_character c ON c.id = t.character_id
-             WHERE t.tool_id = ?`,
-      via: 'character_tool',
-    },
-  ],
-  condition: [
-    {
-      sql: `SELECT c.name AS character
-              FROM character_condition x
-              JOIN player_character c ON c.id = x.character_id
-             WHERE x.condition_id = ?`,
-      via: 'character_condition',
-    },
-  ],
-  language: [],
-};
-
-async function characterUsages(
-  port: DatabasePort,
-  table: KeyedTable,
-  id: number,
-): Promise<Usage[]> {
-  const usages: Usage[] = [];
-  for (const query of USAGE_QUERIES[table]) {
-    const found = await charactersUsing(port, query.sql, [id], query.via);
-    usages.push(...found);
-  }
-  return usages;
-}
-
+/** The rows `file` still names are kept; every other row in the pack is gone. */
 async function findRemovalBlockers(
   port: DatabasePort,
   sourceId: number,
   file: PackFile,
 ): Promise<string[]> {
-  const declared = declaredKeys(file);
-  const blockers: string[] = [];
-
-  for (const table of KEYED_TABLES) {
-    const rows = await port.all<{ id: number; slug: string }>(
-      `SELECT id, slug FROM "${table}" WHERE source_id = ?`,
-      [sourceId],
-    );
-    const keep = declared.get(table);
-    for (const row of rows) {
-      if (keep?.has(row.slug)) continue;
-      for (const usage of await characterUsages(port, table, row.id)) {
-        blockers.push(
-          `cannot replace: ${tableNameInProse(table)} "${row.slug}" was removed in this version but is used by character "${usage.character}" (${usage.via})`,
-        );
-      }
-    }
-  }
-
-  return blockers;
+  const removed = await usagesOfRemovedRows(port, sourceId, declaredKeys(file));
+  return removed.map(
+    ({ table, slug, usage }) =>
+      `cannot replace: ${tableNameInProse(table)} "${slug}" was removed in this version but is used by character "${usage.character}" (${usage.via})`,
+  );
 }
 
 async function deleteRemoved(
@@ -1726,14 +1453,14 @@ export async function importPack(
   options: ImportOptions = {},
 ): Promise<ImportResult> {
   const file = await validatePack(port, input);
-  const existing = await findSource(port, file.source.key);
+  const existing = await findPackSource(port, file.source.key);
   const slug = await targetSlugFor(port, file, existing, options);
 
   await port.exec('BEGIN');
   try {
-    const sourceId = await writeSource(port, file, existing, slug);
+    const sourceId = await upsertPackSource(port, file.source, existing, slug);
     if (options.mode === 'keep-both' && existing) {
-      await port.run('UPDATE source SET superseded_by = ? WHERE id = ?', [sourceId, existing.id]);
+      await markSuperseded(port, existing.id, sourceId);
     }
 
     const features = collectFeatures(file);

@@ -5,7 +5,7 @@ import { exportPack } from '@/packs/exportPack';
 import { importPack, PackImportError } from '@/packs/importPack';
 import { PackValidationError } from '@/packs/validatePack';
 import { SRD_SQL, packFixture } from '@/testing/pack-fixture';
-import type { PackFeat, PackFile, PackSpell } from '@/models/ContentPack';
+import type { PackFeat, PackFile, PackItem, PackSpell } from '@/models/ContentPack';
 
 /** The pack format is the round trip: import a file, export it, get the same
  *  file back. The other tests pin the cases the round trip cannot show. */
@@ -261,6 +261,40 @@ describe('importing a pack', () => {
       expect(
         await port.get<{ id: number }>('SELECT id FROM condition WHERE slug = ?', ['marked']),
       ).toBeDefined();
+    });
+
+    it('refuses to remove an item a character resistance cites, and names the character', async () => {
+      const emberDagger: PackItem = {
+        key: 'ember-dagger',
+        name: 'Ember Dagger',
+        weight: 1,
+        costCp: 500,
+        requiresAttunement: false,
+      };
+      const itemPack = (withDagger: boolean): PackFile => ({
+        ...speciesAndBackground(30),
+        items: withDagger ? [emberDagger] : [],
+      });
+
+      await importPack(port, itemPack(true));
+      const characterId = await addCharacter();
+      const damageType = await port.get<{ id: number }>(
+        'SELECT id FROM damage_type WHERE slug = ?',
+        ['fire'],
+      );
+      const item = await port.get<{ id: number }>('SELECT id FROM item WHERE slug = ?', [
+        'ember-dagger',
+      ]);
+      await port.run(
+        `INSERT INTO character_damage_modifier (character_id, damage_type_id, relation, item_id)
+         VALUES (?, ?, 'resistant', ?)`,
+        [characterId, damageType!.id, item!.id],
+      );
+
+      await expect(importPack(port, itemPack(false))).rejects.toThrow(
+        /item "ember-dagger".*character "Thia" \(character_damage_modifier\)/,
+      );
+      expect(await rowCount('item')).toBe(1);
     });
   });
 
