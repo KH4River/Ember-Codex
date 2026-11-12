@@ -1,5 +1,5 @@
 // Preload runs in the renderer's context. It exposes exactly the database
-// primitives the renderer needs and nothing else.
+// primitives and pack file channels the renderer needs and nothing else.
 import { contextBridge, ipcRenderer } from 'electron';
 
 contextBridge.exposeInMainWorld('electronAPI', {
@@ -10,5 +10,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
     run: (sql: string, params: unknown[]) => ipcRenderer.invoke('db:run', sql, params),
     all: (sql: string, params: unknown[]) => ipcRenderer.invoke('db:all', sql, params),
     get: (sql: string, params: unknown[]) => ipcRenderer.invoke('db:get', sql, params),
+  },
+  files: {
+    openPack: () => ipcRenderer.invoke('pack:open'),
+    savePack: (contents: string, suggestedName: string) =>
+      ipcRenderer.invoke('pack:save', contents, suggestedName),
   },
 });

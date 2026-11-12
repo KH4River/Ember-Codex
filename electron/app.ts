@@ -2,7 +2,7 @@ import { app, BrowserWindow } from 'electron';
 import { join } from 'node:path';
 
 import { GameDatabase } from './database';
-import { registerDatabaseIpc } from './ipc';
+import { registerDatabaseIpc, registerPackIpc } from './ipc';
 
 /** Where the Angular dev server runs. Must match the "serve" target. */
 const DEV_SERVER_URL = 'http://localhost:4200/';
@@ -76,6 +76,7 @@ app.whenReady().then(() => {
   // migrations and queries through IPC, so no schema knowledge lives here.
   const db = new GameDatabase(join(app.getPath('userData'), 'dnd.db'));
   registerDatabaseIpc(db);
+  registerPackIpc();
 
   createWindow();
 
