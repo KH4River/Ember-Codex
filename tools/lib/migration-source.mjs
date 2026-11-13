@@ -31,6 +31,11 @@ function normaliseEol(text) {
   return text.replace(/\r\n/g, '\n');
 }
 
+/** One migration file's digest, with the same line-ending folding. */
+export function contentDigest(sql) {
+  return createHash('sha256').update(normaliseEol(sql)).digest('hex');
+}
+
 /**
  * Digest over name + content of every migration, in order. A change to any
  * migration changes this; the generated TS embeds it and the verifier compares.
