@@ -42,7 +42,15 @@ export class CapacitorPackFilesDriver implements PackFilesPort {
       encoding: Encoding.UTF8,
     });
     const { uri } = await Filesystem.getUri({ path: suggestedName, directory: Directory.Cache });
-    await Share.share({ title: suggestedName, url: uri });
+    try {
+      await Share.share({ title: suggestedName, url: uri });
+    } catch (error) {
+      // Dismissing the sheet is a cancellation, not a failed export.
+      if (error instanceof Error && error.message === 'Share canceled') {
+        return false;
+      }
+      throw error;
+    }
     return true;
   }
 }

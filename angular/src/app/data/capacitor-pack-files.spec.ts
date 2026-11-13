@@ -91,4 +91,13 @@ describe('CapacitorPackFilesDriver', () => {
     expect(plugins.writeFile).not.toHaveBeenCalled();
     expect(plugins.share).not.toHaveBeenCalled();
   });
+
+  it('treats dismissing the share sheet as a cancellation', async () => {
+    plugins.canShare.mockResolvedValue({ value: true });
+    plugins.writeFile.mockResolvedValue({ uri: 'file:///cache/homebrew.json' });
+    plugins.getUri.mockResolvedValue({ uri: 'file:///cache/homebrew.json' });
+    plugins.share.mockRejectedValue(new Error('Share canceled'));
+
+    expect(await driver.savePack('{}', 'homebrew.json')).toBe(false);
+  });
 });
