@@ -11,9 +11,15 @@ interface ElectronDatabaseApi {
   get(sql: string, params?: unknown[]): Promise<unknown>;
 }
 
+interface ElectronFilesApi {
+  openPack(): Promise<{ name: string; contents: string } | null>;
+  savePack(contents: string, suggestedName: string): Promise<boolean>;
+}
+
 interface ElectronAPI {
   rendererReady?: () => void;
   db?: ElectronDatabaseApi;
+  files?: ElectronFilesApi;
 }
 
 interface Window {

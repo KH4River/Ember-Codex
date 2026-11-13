@@ -1,12 +1,9 @@
 // Reports which packages dominate a built bundle.
-// Usage:
 //   npx ng build --configuration production --stats-json   (from angular/)
 //   node tools/analyze-bundle.mjs
 //
-// Reads the esbuild metafile Angular writes to
-// angular/dist/ember-codex/stats.json and attributes each file's
-// minified bytesInOutput to the package that owns it. Material and CDK are
-// broken down further by submodule, since they are the usual suspects.
+// Reads Angular's esbuild metafile and attributes bytesInOutput to the owning
+// package; Material and CDK are split by submodule.
 import { readFileSync } from 'node:fs';
 
 const STATS = new URL('../angular/dist/ember-codex/stats.json', import.meta.url);

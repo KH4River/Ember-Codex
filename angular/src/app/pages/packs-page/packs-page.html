@@ -1,0 +1,65 @@
+<section class="packs">
+  <h1>Packs</h1>
+
+  @if (notice(); as message) {
+    <p class="notice" role="status">{{ message }}</p>
+  }
+
+  @if (problems().length > 0) {
+    <ul class="problems" role="alert">
+      @for (problem of problems(); track problem) {
+        <li>{{ problem }}</li>
+      }
+    </ul>
+  }
+
+  <button matButton="filled" (click)="importPicked()" [disabled]="busy()">Import pack</button>
+
+  @if (pendingImport(); as pending) {
+    <div class="mode-panel">
+      <p>"{{ pending.installed.name }}" ({{ pending.installed.slug }}) is already installed.</p>
+      <button matButton="filled" (click)="replaceInstalled()" [disabled]="busy()">
+        Replace {{ pending.installed.slug }}
+      </button>
+
+      <label class="new-key">
+        New key
+        <input
+          [value]="newKey()"
+          [placeholder]="pending.installed.slug + '-v2'"
+          (input)="newKey.set($any($event.target).value)"
+        />
+      </label>
+      <p class="hint">The key becomes the prefix in shared references.</p>
+
+      <button mat-button (click)="keepBoth()" [disabled]="busy()">Keep both</button>
+      <button mat-button (click)="cancelImport()" [disabled]="busy()">Cancel</button>
+    </div>
+  }
+
+  @for (pack of packs(); track pack.slug) {
+    <article class="pack">
+      <h2>{{ pack.name }}</h2>
+      <p class="meta">{{ pack.slug }} · {{ pack.version }} · imported {{ pack.importedAt }}</p>
+
+      @if (pack.supersededBy; as successor) {
+        <p class="badge">superseded by {{ successor }}</p>
+      }
+
+      <div class="actions">
+        <button mat-button (click)="exportPack(pack.slug)" [disabled]="busy()">Export</button>
+        <button mat-button (click)="askToRemove(pack)" [disabled]="busy()">Remove</button>
+      </div>
+
+      @if (confirmingRemoval()?.slug === pack.slug) {
+        <p class="confirm">Remove {{ pack.slug }}?</p>
+        <div class="actions">
+          <button matButton="filled" (click)="remove(pack)" [disabled]="busy()">Remove</button>
+          <button mat-button (click)="cancelRemoval()" [disabled]="busy()">Cancel</button>
+        </div>
+      }
+    </article>
+  } @empty {
+    <p>No packs are installed yet.</p>
+  }
+</section>

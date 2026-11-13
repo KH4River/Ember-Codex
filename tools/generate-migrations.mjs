@@ -1,10 +1,8 @@
 // Generates shared/db/migrations.generated.ts from shared/db/migrations/*.sql.
 //
-// Why generate instead of importing the .sql directly: Node cannot import a
-// .sql file, and the Angular builder's `.sql` loader disables Node builtin
-// resolution in the unit-test builder (which broke `node:sqlite` in specs).
-// A generated TypeScript module works everywhere and keeps 001_initial.sql the
-// single source of truth; verify-migration.mjs fails if this file drifts.
+// Node cannot import .sql, and the Angular test builder's `.sql` loader breaks
+// node:sqlite resolution. A generated module works everywhere and keeps
+// 001_initial.sql the source of truth; verify-migration.mjs fails on drift.
 //
 // Run: node tools/generate-migrations.mjs
 import { writeFileSync } from 'node:fs';

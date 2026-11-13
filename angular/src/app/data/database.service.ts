@@ -8,17 +8,15 @@ import { listAbilities, type Ability } from '@/db/repositories/abilities';
 import { ElectronIpcDriver } from './electron-ipc.driver';
 
 /**
- * The renderer's entry point to the database.
- *
- * It picks a DatabasePort for the platform, migrates once, and exposes typed
- * reads. The SQL lives in shared/db/repositories; this class never writes any.
- *
- * initialize() is idempotent and safe to call from anywhere, so the app
- * initializer and individual components can both call it.
+ * The renderer's entry point to the database: pick a DatabasePort, open it once
+ * and run the migrations. Business SQL lives in shared/db/repositories, so a
+ * feature service takes port() and calls them; sqliteVersion() is the one
+ * diagnostic that issues its own. initialize() is idempotent, so the app
+ * initializer and components can both call it.
  */
 @Injectable({ providedIn: 'root' })
 export class DatabaseService {
-  private port?: DatabasePort;
+  private connection?: DatabasePort;
   private ready?: Promise<void>;
 
   initialize(): Promise<void> {
@@ -26,27 +24,27 @@ export class DatabaseService {
     return this.ready;
   }
 
+  /** The open connection, for anything that composes repositories. */
+  async port(): Promise<DatabasePort> {
+    await this.initialize();
+    return this.connection!;
+  }
+
   async abilities(): Promise<Ability[]> {
-    const port = await this.connectedPort();
-    return listAbilities(port);
+    return listAbilities(await this.port());
   }
 
   async sqliteVersion(): Promise<string> {
-    const port = await this.connectedPort();
+    const port = await this.port();
     const row = await port.get<{ version: string }>('SELECT sqlite_version() AS version');
     return row?.version ?? 'unknown';
-  }
-
-  private async connectedPort(): Promise<DatabasePort> {
-    await this.initialize();
-    return this.port!;
   }
 
   private async open(): Promise<void> {
     const port = await DatabaseService.createPort();
     await port.open();
     await runMigrations(port, MIGRATIONS);
-    this.port = port;
+    this.connection = port;
   }
 
   private static async createPort(): Promise<DatabasePort> {

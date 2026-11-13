@@ -14,6 +14,15 @@
     "importHelpers": true,
     "target": "ES2022",
     "module": "preserve",
+    // The repository root, not this folder. `paths` below maps `@/*` at both
+    // ./src/app/* and ../shared/*, so every shared/ file this project imports
+    // lives outside angular/. Left unset, the editor pins rootDir to the
+    // workspace and TS6059 fires on shared/db/DatabasePort.ts and its
+    // siblings -- which are imported from app code and have been since
+    // b49c1f3. Set here rather than in each derived config so there is one
+    // place to look. Both configs' `outDir` are unused: the Angular builder
+    // emits through esbuild to angular/dist, so this moves no output.
+    "rootDir": "..",
     "paths": {
       "@/*": ["./src/app/*", "../shared/*"]
     }

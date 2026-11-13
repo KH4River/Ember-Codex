@@ -1,34 +1,9 @@
 // Generates docs/schema/schema.dbml from shared/db/migrations/*.sql.
 //
-// Why introspect the built schema instead of parsing the .sql text: the engine
-// already answers "which columns are NOT NULL", "in what order is the composite
-// primary key" and "what does this foreign key do on delete" through pragmas,
-// and tools/verify-migration.mjs already opens the migrations this way. A regex
-// would re-derive all three, and it would disagree with table_info about rowid
-// aliases -- SQLite reports an INTEGER PRIMARY KEY as nullable however it is
-// declared, so a parser reading the declaration would call it NOT NULL.
-//
-// CHECK bodies are the one thing no pragma exposes, so they come out of the DDL
-// SQLite itself stored in sqlite_master.sql. That is still the engine's copy of
-// the text rather than a second parse of the file, and it means a CHECK the
-// engine rejected at CREATE time cannot appear here.
-//
-// Why DBML rather than Mermaid: this schema has 51 composite primary keys, 63
-// composite unique indexes and 106 CHECK constraints. Mermaid's erDiagram has
-// no syntax for any of the three -- composite keys flatten into a PK per
-// column, composite uniques are dropped, and CHECK is not expressible -- so a
-// Mermaid diagram of this schema misstates most of what the schema constrains.
-// DBML carries all of them, plus [delete: ...] for the two-tier delete policy
-// that .opencode/rules-reference.md is about.
-//
-// The Ref operator carries the two facts the column settings carry, because
-// dbdiagram warns on any operator the columns contradict: a unique child key
-// is one-to-one ('-' rather than '>') and a nullable child FK is optional
-// ('?' appended) -- https://dbdiagram.io/docs/relationships.
-//
-// What DBML still cannot carry, so the .sql keeps doing it: partial indexes are
-// noted rather than expressed, CHECK constraints are unnamed because SQLite
-// does not name them, and column comments stay in the migration.
+// Reads the built schema through pragmas: the engine knows nullability, key
+// order and delete actions, and CHECK bodies come from sqlite_master.sql.
+// Ref operators encode key/nullability for dbdiagram: '-' unique, '>'
+// non-unique, '?' nullable. https://dbdiagram.io/docs/relationships
 //
 // Run: node tools/generate-schema-diagram.mjs
 import { DatabaseSync } from 'node:sqlite';
@@ -62,10 +37,8 @@ const ddl = new Map(tables.map((t) => [t.name, t.sql]));
 const columnsOf = (t) => db.prepare(`PRAGMA table_info(${q(t)})`).all();
 
 /**
- * foreign_key_list emits one row per column: `id` groups the columns belonging
- * to one constraint and `seq` is their order. Grouping by id is what keeps
- * `player_character.(variant_id, species_id)` one relationship rather than two
- * unrelated ones.
+ * foreign_key_list emits one row per column. `id` groups the columns of one
+ * constraint; `seq` orders them.
  */
 function foreignKeysOf(table) {
   const groups = new Map();
@@ -76,9 +49,8 @@ function foreignKeysOf(table) {
 }
 
 /**
- * Every key on a table, split by what DBML can actually say. A composite key is
- * an `indexes` entry; a single-column key is a column setting. Both spellings
- * exist so nothing has to be flattened to fit.
+ * The keys on a table, split into what DBML can carry: a composite key becomes
+ * an `indexes` entry, a single-column key a column setting.
  */
 function keysOf(table) {
   const compositePk = columnsOf(table).filter((c) => c.pk > 0).sort((a, b) => a.pk - b.pk);
@@ -90,15 +62,13 @@ function keysOf(table) {
       .prepare(`PRAGMA index_info(${q(idx.name)})`).all()
       .sort((a, b) => a.seqno - b.seqno)
       .map((c) => c.name);
-    // A named index may be partial, which SQLite keeps only in its DDL. DBML has
-    // no partial index, so the predicate is recorded as a note rather than
-    // dropped -- these four are what hold a NULL source_id to one global row.
+    // A partial index keeps its predicate only in the DDL. DBML has no partial
+    // index, so record the predicate as a note.
     const predicate = /where\s+([\s\S]+)$/i.exec(
       db.prepare(`SELECT sql FROM sqlite_master WHERE type='index' AND name=${q(idx.name)}`).get()?.sql ?? ''
     );
     const entry = { cols, name: idx.origin === 'c' ? idx.name : null, predicate: predicate?.[1].trim() ?? null };
-    // A composite primary key is itself a unique index, and DBML's [pk] already
-    // says unique. Emitting both would print every key twice.
+    // A composite PK is also a unique index, and [pk] already says unique.
     const isThePk = compositePk.length > 1 && cols.join() === compositePk.map((c) => c.name).join();
     if (isThePk) continue;
     if (cols.length === 1 && entry.name === null) single.add(cols[0]);
@@ -108,19 +78,16 @@ function keysOf(table) {
 }
 
 /**
- * A single-column key is not nullable even where table_info says it is: it is
- * the rowid alias, and SQLite reports INTEGER PRIMARY KEY as notnull 0
- * whatever the declaration says. Shared by the column emitter and the ref
- * operator so the two cannot disagree about the same column.
+ * table_info reports a single-column INTEGER PRIMARY KEY as nullable; it is the
+ * rowid alias and cannot be null. Shared by the column emitter and ref operator.
  */
 const isNotNull = (c, keys) => c.notnull || (c.pk > 0 && keys.pk.length === 1);
 
 /**
- * True when this column set is a unique key of the table: the single-column
- * primary key (which has no autoindex to find), a single-column unique
- * constraint, the full composite primary key, or a composite unique index.
- * A partial unique index does not count — it constrains only the rows matching
- * its predicate, so it cannot make an FK set one-to-one.
+ * True when this column set is a unique key: a single-column primary key or
+ * unique constraint, the full composite primary key, or a non-partial composite
+ * unique index. A partial index only constrains matching rows, so it cannot make
+ * an FK one-to-one.
  */
 function isUniqueKey(keys, cols) {
   const names = cols.join();
@@ -132,8 +99,8 @@ function isUniqueKey(keys, cols) {
 
 /**
  * CHECK bodies from the stored DDL. The scan balances parentheses because a
- * body can nest -- `length(attribution) > 0` -- and steps over quoted literals
- * so a paren or the word inside a string cannot end the scan early.
+ * body can nest, and skips quoted literals so a paren inside a string does not
+ * end it early.
  */
 function checksOf(table) {
   const sql = ddl.get(table);
@@ -181,8 +148,7 @@ function tableBlock(name) {
     if (c.pk > 0 && !compositePk) settings.push('pk');
     if (isNotNull(c, keys)) settings.push('not null');
     if (single.has(c.name)) settings.push('unique');
-    // DBML takes a bare number, a 'quoted string' or a `expression`. SQLite
-    // hands back the literal as written, so only a call needs the backticks.
+    // SQLite hands back the literal as written; only a call needs backticks.
     const d = c.dflt_value?.trim();
     if (d) settings.push(/^[A-Za-z_][\w]*\s*\(/.test(d) ? `default: \`${d}\`` : `default: ${d}`);
     return `  ${c.name} ${c.type.toLowerCase()}${settings.length ? ` [${settings.join(', ')}]` : ''}`;
@@ -217,8 +183,8 @@ function refLine(child, group, keys, columnInfo) {
   return `Ref: ${child}.${cols(from)} ${op} ${group[0].table}.${to} [delete: ${ACTION(group[0].on_delete)}, update: ${ACTION(group[0].on_update)}]`;
 }
 
-// keysOf and table_info cost a pragma round trip each, so they are computed
-// once per child table rather than once per foreign key.
+// keysOf and table_info each cost a pragma round trip, so compute them once
+// per child table.
 const refs = tables
   .flatMap((t) => {
     const keys = keysOf(t.name);
