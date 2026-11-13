@@ -5,9 +5,9 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
-import { readMigrationSources, sourceDigest } from './lib/migration-source.mjs';
+import { readMigrationSources, contentDigest, sourceDigest } from './lib/migration-source.mjs';
 
-const sql = readFileSync(new URL('../shared/db/migrations/001_initial.sql', import.meta.url), 'utf8');
+const sources = readMigrationSources();
 const db = new DatabaseSync(':memory:');
 db.exec('PRAGMA foreign_keys = ON');
 
@@ -61,12 +61,16 @@ const expectFail = (label, fn) => {
 };
 
 try {
-  db.exec(sql);
-  ok('schema applied cleanly');
+  for (const migration of sources) {
+    db.exec(migration.sql);
+  }
+  ok(`schema applied cleanly (${sources.length} migration files)`);
 } catch (e) {
   fail('schema: ' + e.message);
   process.exit(1);
 }
+
+expect('user_version is the number of migration files', q('PRAGMA user_version').user_version, sources.length);
 
 const tables = db
   .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name")
@@ -79,7 +83,6 @@ ok(`${tables.length} tables created`);
 // shared/db/migrations.generated.ts is generated from shared/db/migrations/*.sql.
 // If someone edits a migration without regenerating, the app would run stale SQL
 // while this harness runs the fresh file -- exactly the drift this repo forbids.
-const sources = readMigrationSources();
 const generated = readFileSync(new URL('../shared/db/migrations.generated.ts', import.meta.url), 'utf8');
 const hashLine = /^\/\/ source-hash: ([0-9a-f]{64})$/m.exec(generated);
 if (!hashLine) {
@@ -119,6 +122,28 @@ for (const [i, { name, sql }] of sources.entries()) {
   if (!m) fail(`${name} does not end with PRAGMA user_version = N`);
   else if (Number(m[1]) !== i + 1) fail(`${name} sets user_version ${m[1]}, expected ${i + 1}`);
   else ok(`${name} sets user_version ${i + 1} (matches its ordinal)`);
+}
+
+// ---- A shipped migration is never edited ----
+// user_version is the only thing an installed database reports, so editing a
+// file it has already run leaves that database behind forever. The lock records
+// what each file looked like when it shipped; adding a file means adding its
+// digest, which puts the change in the diff on purpose.
+const lock = JSON.parse(readFileSync(new URL('./migration-lock.json', import.meta.url), 'utf8'));
+const sourceNames = sources.map(({ name }) => name);
+const missing = Object.keys(lock).filter((name) => !sourceNames.includes(name));
+const unlocked = sourceNames.filter((name) => !(name in lock));
+if (missing.length > 0) {
+  fail(`migration-lock.json names files that do not exist: ${missing.join(', ')}`);
+} else if (unlocked.length > 0) {
+  fail(`new migration not in migration-lock.json: ${unlocked.join(', ')}; run \`node tools/lock-migration.mjs\``);
+} else {
+  const edited = sources.filter(({ name, sql }) => lock[name] !== contentDigest(sql));
+  if (edited.length > 0) {
+    fail(`${edited.map(({ name }) => name).join(', ')} changed after it shipped; add a numbered migration instead of editing it`);
+  } else {
+    ok('migration files match migration-lock.json');
+  }
 }
 
 // ---- Migrations must survive the Capacitor plugin's statement split ----
