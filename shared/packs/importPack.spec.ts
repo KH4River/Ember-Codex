@@ -1,11 +1,11 @@
-import { NodeSqlitePort } from '@/testing/node-sqlite.port';
-import { runMigrations } from '@/db/migrate';
-import { MIGRATIONS } from '@/db/migrations.generated';
-import { exportPack } from '@/packs/exportPack';
-import { importPack, PackImportError } from '@/packs/importPack';
-import { PackValidationError } from '@/packs/validatePack';
-import { SRD_SQL, packFixture } from '@/testing/pack-fixture';
-import type { PackFeat, PackFile, PackItem, PackSpell } from '@/models/ContentPack';
+import { NodeSqlitePort } from '../testing/node-sqlite.port';
+import { runMigrations } from '../db/migrate';
+import { MIGRATIONS } from '../db/migrations.generated';
+import { exportPack } from './exportPack';
+import { importPack, PackImportError } from './importPack';
+import { PackValidationError } from './validatePack';
+import { SRD_SQL, packFixture } from '../testing/pack-fixture';
+import type { PackFeat, PackFile, PackItem, PackSpell } from '../models/ContentPack';
 
 /** The pack format is the round trip: import a file, export it, get the same
  *  file back. The other tests pin the cases the round trip cannot show. */

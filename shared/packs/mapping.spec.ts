@@ -1,7 +1,7 @@
-import { NodeSqlitePort } from '@/testing/node-sqlite.port';
-import { runMigrations } from '@/db/migrate';
-import { MIGRATIONS } from '@/db/migrations.generated';
-import { columnFor, columnsFor, isDropped, jsonNameFor, jsonNamesFor } from '@/packs/mapping';
+import { NodeSqlitePort } from '../testing/node-sqlite.port';
+import { runMigrations } from '../db/migrate';
+import { MIGRATIONS } from '../db/migrations.generated';
+import { columnFor, columnsFor, isDropped, jsonNameFor, jsonNamesFor } from './mapping';
 
 /**
  * The mapping is the most bug-prone part of the format: a missing entry drops

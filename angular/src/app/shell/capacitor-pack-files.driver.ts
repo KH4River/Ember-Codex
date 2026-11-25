@@ -2,12 +2,12 @@ import { Directory, Encoding, Filesystem } from '@capacitor/filesystem';
 import { Share } from '@capacitor/share';
 import { FilePicker } from '@capawesome/capacitor-file-picker';
 
-import type { OpenedPack, PackFilesPort } from './pack-files.port';
+import type { OpenedPack, PackFilesApi } from '@/api/PackFilesApi';
 
 /** Mobile adapter: the system picker for reading, and a cache file handed to
  *  the system share sheet for writing. The app cannot see what the user does
  *  inside that sheet. */
-export class CapacitorPackFilesDriver implements PackFilesPort {
+export class CapacitorPackFilesDriver implements PackFilesApi {
   async openPack(): Promise<OpenedPack | null> {
     // Android 9 and older call .json octet-stream, and some document providers
     // do the same on any version.

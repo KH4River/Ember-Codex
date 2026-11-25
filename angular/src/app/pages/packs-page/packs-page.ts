@@ -1,11 +1,10 @@
 import { Component, inject, signal } from '@angular/core';
 import { MatButtonModule } from '@angular/material/button';
 
-import type { PackSummary } from '@/db/repositories/sources';
-import { PackImportError } from '@/packs/importPack';
+import type { PackImportResult } from '@/api/DatabaseApi';
+import type { PackSummary } from '@/models/PackSummary';
 import type { ImportTextOptions } from '@/packs/importPackText';
 import { PacksService } from '@/packs/packs.service';
-import { PackValidationError } from '@/packs/validatePack';
 
 export interface PendingImport {
   contents: string;
@@ -37,15 +36,11 @@ export class PacksPage {
 
   async importPicked(): Promise<void> {
     await this.busyDuring(async () => {
-      const outcome = await this.packsService.importPicked();
-      if (outcome === null) {
+      const result = await this.packsService.importPicked();
+      if (result === null) {
         return;
       }
-      if (outcome.status === 'needs-mode') {
-        this.pendingImport.set({ contents: outcome.contents, installed: outcome.installed });
-        return;
-      }
-      await this.imported(outcome.file.source.name);
+      await this.handleImport(result);
     });
   }
 
@@ -106,12 +101,27 @@ export class PacksPage {
 
   private async finishImport(contents: string, options: ImportTextOptions): Promise<void> {
     await this.busyDuring(async () => {
-      const outcome = await this.packsService.import(contents, options);
-      if (outcome.status !== 'imported') {
-        return;
-      }
-      await this.imported(outcome.file.source.name);
+      await this.handleImport(await this.packsService.import(contents, options));
     });
+  }
+
+  private async handleImport(result: PackImportResult): Promise<void> {
+    if (result.status === 'invalid') {
+      this.problems.set(result.problems);
+      return;
+    }
+    if (result.status === 'blocked') {
+      this.problems.set(result.blockers);
+      return;
+    }
+    if (result.outcome.status === 'needs-mode') {
+      this.pendingImport.set({
+        contents: result.outcome.contents,
+        installed: result.outcome.installed,
+      });
+      return;
+    }
+    await this.imported(result.outcome.file.source.name);
   }
 
   private async imported(name: string): Promise<void> {
@@ -143,14 +153,9 @@ export class PacksPage {
   }
 }
 
-/** Both error classes carry a list, so one place flattens them. */
+/** The file seam and the transport still throw plain errors; the importer's
+ *  two refusals arrive as data instead. */
 function problemsOf(error: unknown): string[] {
-  if (error instanceof PackValidationError) {
-    return error.problems;
-  }
-  if (error instanceof PackImportError) {
-    return error.blockers;
-  }
   if (error instanceof Error) {
     return [error.message];
   }

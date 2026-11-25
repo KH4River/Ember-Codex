@@ -1,16 +1,12 @@
 import { Injectable, inject } from '@angular/core';
 
-import { listPacks, type PackSummary } from '@/db/repositories/sources';
-import { exportPack } from '@/packs/exportPack';
-import {
-  importPackText,
-  type ImportTextOptions,
-  type PackImportOutcome,
-} from '@/packs/importPackText';
-import { removePack, type PackRemoval } from '@/packs/removePack';
+import type { PackImportResult } from '@/api/DatabaseApi';
+import type { PackSummary } from '@/models/PackSummary';
+import type { ImportTextOptions } from '@/packs/importPackText';
+import type { PackRemoval } from '@/packs/removePack';
 
-import { DatabaseService } from '@/data/database.service';
-import { PackFilesService } from '@/data/pack-files.service';
+import { DatabaseService } from '@/shell/database.service';
+import { PackFilesService } from '@/shell/pack-files.service';
 
 /** The pack feature's entry point: the page and any future extractor call this
  *  and nothing below it. */
@@ -19,16 +15,16 @@ export class PacksService {
   private readonly database = inject(DatabaseService);
   private readonly files = inject(PackFilesService);
 
-  async list(): Promise<PackSummary[]> {
-    return listPacks(await this.database.port());
+  list(): Promise<PackSummary[]> {
+    return this.database.listPacks();
   }
 
-  async import(contents: string, options: ImportTextOptions = {}): Promise<PackImportOutcome> {
-    return importPackText(await this.database.port(), contents, options);
+  import(contents: string, options: ImportTextOptions = {}): Promise<PackImportResult> {
+    return this.database.importPack(contents, options);
   }
 
   /** Null means the user cancelled the picker. */
-  async importPicked(options: ImportTextOptions = {}): Promise<PackImportOutcome | null> {
+  async importPicked(options: ImportTextOptions = {}): Promise<PackImportResult | null> {
     const opened = await this.files.openPack();
     if (opened === null) {
       return null;
@@ -37,12 +33,12 @@ export class PacksService {
   }
 
   async export(slug: string): Promise<boolean> {
-    const contents = await exportPack(await this.database.port(), slug);
+    const contents = await this.database.exportPack(slug);
     return this.files.savePack(contents, safeFileName(slug));
   }
 
-  async remove(slug: string): Promise<PackRemoval> {
-    return removePack(await this.database.port(), slug);
+  remove(slug: string): Promise<PackRemoval> {
+    return this.database.removePack(slug);
   }
 }
 

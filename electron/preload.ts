@@ -1,19 +1,25 @@
-// Preload runs in the renderer's context. It exposes exactly the database
-// primitives and pack file channels the renderer needs and nothing else.
+// Preload runs in the renderer's context. It exposes the typed operations the
+// renderer needs and nothing else: no SQL, no port, no schema.
 import { contextBridge, ipcRenderer } from 'electron';
 
-contextBridge.exposeInMainWorld('electronAPI', {
+import type { ElectronApi } from '../shared/api/ElectronApi';
+
+const api: ElectronApi = {
   rendererReady: () => ipcRenderer.send('renderer-ready'),
-  db: {
-    version: () => ipcRenderer.invoke('db:version'),
-    exec: (sql: string) => ipcRenderer.invoke('db:exec', sql),
-    run: (sql: string, params: unknown[]) => ipcRenderer.invoke('db:run', sql, params),
-    all: (sql: string, params: unknown[]) => ipcRenderer.invoke('db:all', sql, params),
-    get: (sql: string, params: unknown[]) => ipcRenderer.invoke('db:get', sql, params),
+  database: {
+    listAbilities: () => ipcRenderer.invoke('database:list-abilities'),
+    listPacks: () => ipcRenderer.invoke('database:list-packs'),
+    importPack: (contents, options) =>
+      ipcRenderer.invoke('database:import-pack', contents, options),
+    exportPack: (slug) => ipcRenderer.invoke('database:export-pack', slug),
+    removePack: (slug) => ipcRenderer.invoke('database:remove-pack', slug),
+    sqliteVersion: () => ipcRenderer.invoke('database:sqlite-version'),
   },
-  files: {
+  packFiles: {
     openPack: () => ipcRenderer.invoke('pack:open'),
-    savePack: (contents: string, suggestedName: string) =>
+    savePack: (contents, suggestedName) =>
       ipcRenderer.invoke('pack:save', contents, suggestedName),
   },
-});
+};
+
+contextBridge.exposeInMainWorld('electronAPI', api);

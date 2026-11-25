@@ -1,4 +1,4 @@
-import { GameDatabase } from '../../../../electron/database';
+import { GameDatabase } from './database';
 
 /**
  * GameDatabase is the Electron main-process wrapper. It has no Electron

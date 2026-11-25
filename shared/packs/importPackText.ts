@@ -1,6 +1,7 @@
 import type { DatabasePort } from '../db/DatabasePort';
-import { getPack, type PackSummary } from '../db/repositories/sources';
+import { getPack } from '../db/repositories/sources';
 import type { PackFile } from '../models/ContentPack';
+import type { PackSummary } from '../models/PackSummary';
 import {
   importPack,
   type ImportMode,

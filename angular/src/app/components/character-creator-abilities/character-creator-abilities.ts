@@ -1,12 +1,11 @@
 import { Component, inject, signal } from '@angular/core';
 
-import { DatabaseService } from '@/data/database.service';
-import type { Ability } from '@/db/repositories/abilities';
+import { AbilitiesService } from '@/data/abilities.service';
+import type { Ability } from '@/models/Ability';
 
 /**
- * Proof that the database is wired end to end: reads the six seeded abilities
- * through the service, on whichever platform the app is running. It is also the
- * seed of the ability-score step.
+ * Reads the six seeded abilities through the ability controller, on whichever
+ * platform the app is running. It is also the seed of the ability-score step.
  */
 @Component({
   selector: 'app-character-creator-abilities',
@@ -14,7 +13,7 @@ import type { Ability } from '@/db/repositories/abilities';
   styleUrl: './character-creator-abilities.scss',
 })
 export class CharacterCreatorAbilities {
-  private readonly database = inject(DatabaseService);
+  private readonly abilitiesService = inject(AbilitiesService);
 
   readonly abilities = signal<Ability[]>([]);
   readonly error = signal<string | null>(null);
@@ -25,7 +24,7 @@ export class CharacterCreatorAbilities {
 
   private async load(): Promise<void> {
     try {
-      this.abilities.set(await this.database.abilities());
+      this.abilities.set(await this.abilitiesService.list());
     } catch (cause) {
       this.error.set(cause instanceof Error ? cause.message : 'Database unavailable');
     }

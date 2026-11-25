@@ -4,9 +4,9 @@ export interface OpenedPack {
   contents: string;
 }
 
-/** The one file seam the pack service sees. Desktop and mobile implement it
- *  differently; nothing above this names a platform. */
-export interface PackFilesPort {
+/** The file seam. Desktop answers it from the main process, mobile from the
+ *  Capacitor picker. Neither side names a path. */
+export interface PackFilesApi {
   openPack(): Promise<OpenedPack | null>;
   savePack(contents: string, suggestedName: string): Promise<boolean>;
 }

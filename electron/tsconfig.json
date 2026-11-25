@@ -4,7 +4,10 @@
     "module": "commonjs",
     "moduleResolution": "node",
     "lib": ["ES2022"],
-    "rootDir": ".",
+    // The repository root: main imports shared/api, shared/db, shared/packs
+    // and shared/models. The output keeps the same shape, so the entry point
+    // is electron/build/electron/app.js and the preload is its sibling.
+    "rootDir": "..",
     "outDir": "build",
     "strict": true,
     "esModuleInterop": true,
@@ -15,6 +18,12 @@
     "types": ["node"],
     "sourceMap": true
   },
-  "include": ["**/*.ts"],
-  "exclude": ["build"]
+  "include": [
+    "**/*.ts",
+    "../shared/api/**/*.ts",
+    "../shared/db/**/*.ts",
+    "../shared/models/**/*.ts",
+    "../shared/packs/**/*.ts"
+  ],
+  "exclude": ["build", "**/*.spec.ts", "../shared/**/*.spec.ts"]
 }

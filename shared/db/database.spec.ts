@@ -1,11 +1,11 @@
 import { DatabaseSync, type SQLInputValue } from 'node:sqlite';
 
-import type { DatabasePort } from '@/db/DatabasePort';
-import { runMigrations } from '@/db/migrate';
-import { MIGRATIONS } from '@/db/migrations.generated';
-import { listAbilities } from '@/db/repositories/abilities';
+import type { DatabasePort } from './DatabasePort';
+import { runMigrations } from './migrate';
+import { MIGRATIONS } from './migrations.generated';
+import { listAbilities } from './repositories/abilities';
 
-import { NodeSqlitePort } from '@/testing/node-sqlite.port';
+import { NodeSqlitePort } from '../testing/node-sqlite.port';
 
 describe('database bridge', () => {
   let port: NodeSqlitePort;

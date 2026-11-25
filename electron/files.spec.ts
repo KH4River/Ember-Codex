@@ -7,7 +7,7 @@ import {
   assertPackSize,
   readPackFile,
   writePackFile,
-} from '../../../../electron/files';
+} from './files';
 
 /**
  * The Electron main-process file helpers have no Electron imports, so they run

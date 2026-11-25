@@ -1,10 +1,10 @@
-import { NodeSqlitePort } from '@/testing/node-sqlite.port';
-import { runMigrations } from '@/db/migrate';
-import { MIGRATIONS } from '@/db/migrations.generated';
-import type { PackFile } from '@/models/ContentPack';
-import { importPack } from '@/packs/importPack';
-import { removePack } from '@/packs/removePack';
-import { SRD_SQL, packFixture } from '@/testing/pack-fixture';
+import { NodeSqlitePort } from '../testing/node-sqlite.port';
+import { runMigrations } from '../db/migrate';
+import { MIGRATIONS } from '../db/migrations.generated';
+import type { PackFile } from '../models/ContentPack';
+import { importPack } from './importPack';
+import { removePack } from './removePack';
+import { SRD_SQL, packFixture } from '../testing/pack-fixture';
 
 /** Removing a pack is a cascade, but only once the character tables have been
  *  asked: RESTRICT alone names no character, so the blockers come from the

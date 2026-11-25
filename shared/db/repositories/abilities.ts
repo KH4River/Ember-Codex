@@ -1,10 +1,5 @@
+import type { Ability } from '../../models/Ability';
 import type { DatabasePort } from '../DatabasePort';
-
-export interface Ability {
-  id: number;
-  code: 'STR' | 'DEX' | 'CON' | 'INT' | 'WIS' | 'CHA';
-  name: string;
-}
 
 /**
  * The six ability scores. This is fixed vocabulary seeded by the migration, so

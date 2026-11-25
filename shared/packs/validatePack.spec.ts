@@ -1,14 +1,14 @@
-import { NodeSqlitePort } from '@/testing/node-sqlite.port';
-import { runMigrations } from '@/db/migrate';
-import { MIGRATIONS } from '@/db/migrations.generated';
-import { PackValidationError, validatePack, validateStructure } from '@/packs/validatePack';
+import { NodeSqlitePort } from '../testing/node-sqlite.port';
+import { runMigrations } from '../db/migrate';
+import { MIGRATIONS } from '../db/migrations.generated';
+import { PackValidationError, validatePack, validateStructure } from './validatePack';
 import type {
   PackBackground,
   PackClass,
   PackFile,
   PackSkill,
   PackSpell,
-} from '@/models/ContentPack';
+} from '../models/ContentPack';
 
 /**
  * The messages are the contract: the UI shows them, so they are pinned here.

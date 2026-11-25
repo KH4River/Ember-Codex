@@ -2,14 +2,14 @@
   "name": "ember-codex",
   "version": "0.0.0",
   "private": true,
-  "main": "electron/build/app.js",
+  "main": "electron/build/electron/app.js",
   "engines": {
     "node": ">=22"
   },
   "scripts": {
     "ng": "ng",
     "electron": "npm run build:electron && concurrently --kill-others \"cd angular && ng serve\" \"electron .\"",
-    "build:electron": "tsc -p electron/tsconfig.json",
+    "build:electron": "node -e \"require('node:fs').rmSync('electron/build',{recursive:true,force:true})\" && tsc -p electron/tsconfig.json",
     "cap:add:android": "npm run build && cap add android",
     "cap:open:android": "cap open android",
     "cap:run:android": "npm run build && cap run android",
@@ -18,7 +18,9 @@
     "build": "cd angular && ng build",
     "generate:migrations": "node tools/generate-migrations.mjs",
     "watch": "cd angular && ng build --watch --configuration development",
-    "test": "cd angular && ng test"
+    "test": "npm run test:angular && npm run test:node",
+    "test:angular": "cd angular && ng test",
+    "test:node": "tsc -p tsconfig.test.json && vitest run --config vitest.node.config.ts"
   },
   "author": {
     "name": "KH4River",
