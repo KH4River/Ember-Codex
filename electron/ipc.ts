@@ -1,21 +1,10 @@
 import { app, dialog, ipcMain } from 'electron';
 import { basename, join } from 'node:path';
-import type { SQLInputValue } from 'node:sqlite';
 
-import type { GameDatabase } from './database';
+import type { DatabaseApi } from '../shared/api/DatabaseApi';
+import type { ImportTextOptions } from '../shared/packs/importPackText';
+
 import { readPackFile, writePackFile } from './files';
-
-function assertSql(sql: unknown): asserts sql is string {
-  if (typeof sql !== 'string') {
-    throw new TypeError('db: sql must be a string');
-  }
-}
-
-function assertParams(params: unknown): asserts params is SQLInputValue[] {
-  if (!Array.isArray(params)) {
-    throw new TypeError('db: params must be an array');
-  }
-}
 
 function assertPackText(contents: unknown): asserts contents is string {
   if (typeof contents !== 'string') {
@@ -31,34 +20,53 @@ function assertPackName(name: unknown): asserts name is string {
   }
 }
 
+function assertSlug(slug: unknown): asserts slug is string {
+  if (typeof slug !== 'string' || slug.length === 0) {
+    throw new TypeError('database: the pack slug must be a non-empty string');
+  }
+}
+
+function assertImportOptions(options: unknown): asserts options is ImportTextOptions | undefined {
+  if (options === undefined) {
+    return;
+  }
+  if (typeof options !== 'object' || options === null) {
+    throw new TypeError('database: import options must be an object');
+  }
+  const mode = (options as { mode?: unknown }).mode;
+  if (mode !== undefined && mode !== 'replace' && mode !== 'keep-both') {
+    throw new TypeError('database: import mode must be replace or keep-both');
+  }
+  const newSlug = (options as { newSlug?: unknown }).newSlug;
+  if (newSlug !== undefined && typeof newSlug !== 'string') {
+    throw new TypeError('database: newSlug must be a string');
+  }
+}
+
 const PACK_FILTERS = [{ name: 'Pack files', extensions: ['json'] }];
 
 /**
- * Exposes the database to the renderer as SQL primitives. Raw SQL over IPC is
- * safe only because statements originate in shared/db/repositories and the
- * renderer runs with contextIsolation on; payloads are still validated.
+ * The renderer sees these operations only. The SQL and the schema stay in this
+ * process; no raw statement crosses the bridge, and the payloads are still
+ * validated because a renderer can call the preload API directly.
  */
-export function registerDatabaseIpc(db: GameDatabase): void {
-  ipcMain.handle('db:version', () => db.sqliteVersion());
-  ipcMain.handle('db:exec', (_event, sql: unknown) => {
-    assertSql(sql);
-    db.exec(sql);
+export function registerDatabaseIpc(api: DatabaseApi): void {
+  ipcMain.handle('database:list-abilities', () => api.listAbilities());
+  ipcMain.handle('database:list-packs', () => api.listPacks());
+  ipcMain.handle('database:import-pack', (_event, contents: unknown, options: unknown) => {
+    assertPackText(contents);
+    assertImportOptions(options);
+    return api.importPack(contents, options);
   });
-  ipcMain.handle('db:run', (_event, sql: unknown, params: unknown = []) => {
-    assertSql(sql);
-    assertParams(params);
-    db.run(sql, params);
+  ipcMain.handle('database:export-pack', (_event, slug: unknown) => {
+    assertSlug(slug);
+    return api.exportPack(slug);
   });
-  ipcMain.handle('db:all', (_event, sql: unknown, params: unknown = []) => {
-    assertSql(sql);
-    assertParams(params);
-    return db.all(sql, params);
+  ipcMain.handle('database:remove-pack', (_event, slug: unknown) => {
+    assertSlug(slug);
+    return api.removePack(slug);
   });
-  ipcMain.handle('db:get', (_event, sql: unknown, params: unknown = []) => {
-    assertSql(sql);
-    assertParams(params);
-    return db.get(sql, params);
-  });
+  ipcMain.handle('database:sqlite-version', () => api.sqliteVersion());
 }
 
 /** Pack files are read and written here, so the renderer never sees a path. */

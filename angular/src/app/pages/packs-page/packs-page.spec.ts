@@ -1,10 +1,8 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 
-import type { PackSummary } from '@/db/repositories/sources';
 import type { PackFile } from '@/models/ContentPack';
-import { PackImportError } from '@/packs/importPack';
+import type { PackSummary } from '@/models/PackSummary';
 import { PacksService } from '@/packs/packs.service';
-import { PackValidationError } from '@/packs/validatePack';
 
 import { PacksPage } from './packs-page';
 
@@ -40,16 +38,22 @@ describe('PacksPage', () => {
   };
 
   const importedOutcome = () => ({
-    status: 'imported',
-    file: aPack,
-    result: { sourceId: 1, sourceSlug: 'my-homebrew' },
+    status: 'ok',
+    outcome: {
+      status: 'imported',
+      file: aPack,
+      result: { sourceId: 1, sourceSlug: 'my-homebrew' },
+    },
   });
 
   const needsMode = () => ({
-    status: 'needs-mode',
-    contents: '{"pack":true}',
-    file: aPack,
-    installed: homebrew,
+    status: 'ok',
+    outcome: {
+      status: 'needs-mode',
+      contents: '{"pack":true}',
+      file: aPack,
+      installed: homebrew,
+    },
   });
 
   const open = async (): Promise<ComponentFixture<PacksPage>> => {
@@ -159,9 +163,10 @@ describe('PacksPage', () => {
   });
 
   it('renders every validation problem', async () => {
-    packsService.importPicked.mockRejectedValue(
-      new PackValidationError(['problem one', 'problem two']),
-    );
+    packsService.importPicked.mockResolvedValue({
+      status: 'invalid',
+      problems: ['problem one', 'problem two'],
+    });
 
     const fixture = await open();
     await click(fixture, 'Import pack');
@@ -171,9 +176,10 @@ describe('PacksPage', () => {
   });
 
   it('renders every import blocker', async () => {
-    packsService.importPicked.mockRejectedValue(
-      new PackImportError(['blocker one', 'blocker two']),
-    );
+    packsService.importPicked.mockResolvedValue({
+      status: 'blocked',
+      blockers: ['blocker one', 'blocker two'],
+    });
 
     const fixture = await open();
     await click(fixture, 'Import pack');

@@ -1,7 +1,11 @@
-import { app, BrowserWindow } from 'electron';
+import { app, BrowserWindow, dialog } from 'electron';
 import { join } from 'node:path';
 
+import { openDatabase } from '../shared/db/openDatabase';
+
 import { GameDatabase } from './database';
+import { MainDatabaseApi } from './database-api';
+import { ElectronDatabasePort } from './database-port';
 import { registerDatabaseIpc, registerPackIpc } from './ipc';
 
 /** Where the Angular dev server runs. Must match the "serve" target. */
@@ -48,7 +52,7 @@ const createWindow = () => {
     // reveal it.
     autoHideMenuBar: true,
     webPreferences: {
-      preload: join(app.getAppPath(), 'electron', 'build', 'preload.js'),
+      preload: join(app.getAppPath(), 'electron', 'build', 'electron', 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
     },
@@ -71,11 +75,21 @@ const createWindow = () => {
   // TODO: add logic for production (when app is packaged)
 };
 
-app.whenReady().then(() => {
-  // On desktop the database lives in the main process. The renderer runs the
-  // migrations and queries through IPC, so no schema knowledge lives here.
+app.whenReady().then(async () => {
+  // Main owns the database and the schema. The renderer gets typed operations
+  // over IPC; it never sees a port, a statement or a migration.
   const db = new GameDatabase(join(app.getPath('userData'), 'dnd.db'));
-  registerDatabaseIpc(db);
+  const port = new ElectronDatabasePort(db);
+  try {
+    await openDatabase(port);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    dialog.showErrorBox('Ember Codex', `The database could not be opened: ${message}`);
+    app.quit();
+    return;
+  }
+
+  registerDatabaseIpc(new MainDatabaseApi(port));
   registerPackIpc();
 
   createWindow();

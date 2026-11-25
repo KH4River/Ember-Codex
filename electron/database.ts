@@ -1,10 +1,10 @@
 import { DatabaseSync, type SQLInputValue } from 'node:sqlite';
 
 /**
- * The desktop database, owned by the Electron main process. It knows nothing
- * about the schema: the renderer owns migrations and repositories and drives them
- * through these primitives over IPC. Only our own SQL crosses the boundary, and
- * this module runs under plain Node for direct unit tests.
+ * The desktop database, owned by the Electron main process. It knows the
+ * connection and the pragma, not the schema: shared/db owns migrations and
+ * repositories, and main drives them. This module runs under plain Node for
+ * direct unit tests.
  */
 export class GameDatabase {
   private readonly db: DatabaseSync;

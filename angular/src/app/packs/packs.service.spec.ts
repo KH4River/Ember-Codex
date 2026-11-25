@@ -1,23 +1,34 @@
 import { TestBed } from '@angular/core/testing';
 
-import { DatabaseService } from '@/data/database.service';
-import { PackFilesService } from '@/data/pack-files.service';
-import { MIGRATIONS } from '@/db/migrations.generated';
-import { runMigrations } from '@/db/migrate';
+import type { PackImportResult } from '@/api/DatabaseApi';
 import type { PackFile } from '@/models/ContentPack';
-import { NodeSqlitePort } from '@/testing/node-sqlite.port';
+import type { PackSummary } from '@/models/PackSummary';
+import { DatabaseService } from '@/shell/database.service';
+import { PackFilesService } from '@/shell/pack-files.service';
 
 import { PacksService, safeFileName } from './packs.service';
 
-/** The feature service forwards to the shared functions and the file seam. The
- *  page depends on this and nothing else. */
+/** The feature service forwards to the typed database client and the file
+ *  seam. The page depends on this and nothing else. */
 describe('PacksService', () => {
-  let port: NodeSqlitePort;
-  let service: PacksService;
-
+  const database = {
+    listPacks: vi.fn(),
+    importPack: vi.fn(),
+    exportPack: vi.fn(),
+    removePack: vi.fn(),
+  };
   const files = {
     openPack: vi.fn(),
     savePack: vi.fn(),
+  };
+  let service: PacksService;
+
+  const homebrew: PackSummary = {
+    slug: 'my-homebrew',
+    name: 'My Homebrew',
+    version: '1.0.0',
+    importedAt: '2026-11-10T18:00:00Z',
+    supersededBy: null,
   };
 
   const aPack = (): PackFile => ({
@@ -33,63 +44,59 @@ describe('PacksService', () => {
     skills: [{ key: 'skyriding', name: 'Skyriding', ability: 'DEX' }],
   });
 
-  beforeEach(async () => {
-    port = new NodeSqlitePort();
-    await port.open();
-    await runMigrations(port, MIGRATIONS);
-    files.openPack.mockReset();
-    files.savePack.mockReset();
+  const imported: PackImportResult = {
+    status: 'ok',
+    outcome: {
+      status: 'imported',
+      file: aPack(),
+      result: { sourceId: 1, sourceSlug: 'my-homebrew' },
+    },
+  };
 
+  beforeEach(async () => {
+    vi.clearAllMocks();
     await TestBed.configureTestingModule({
       providers: [
         PacksService,
-        { provide: DatabaseService, useValue: { port: async () => port } },
+        { provide: DatabaseService, useValue: database },
         { provide: PackFilesService, useValue: files },
       ],
     }).compileComponents();
-
     service = TestBed.inject(PacksService);
   });
 
-  afterEach(async () => {
-    await port.close();
+  it('lists through the typed client', async () => {
+    database.listPacks.mockResolvedValue([homebrew]);
+
+    expect(await service.list()).toEqual([homebrew]);
   });
 
-  it('imports text and lists the pack it wrote', async () => {
-    expect((await service.import(JSON.stringify(aPack()))).status).toBe('imported');
+  it('forwards import text and options', async () => {
+    database.importPack.mockResolvedValue(imported);
 
-    expect(await service.list()).toEqual([
-      {
-        slug: 'my-homebrew',
-        name: 'My Homebrew',
-        version: '1.0.0',
-        importedAt: expect.any(String),
-        supersededBy: null,
-      },
-    ]);
+    expect(await service.import('{"pack":true}', { mode: 'replace' })).toBe(imported);
+    expect(database.importPack).toHaveBeenCalledWith('{"pack":true}', { mode: 'replace' });
   });
 
   it('forwards the picked text, and a cancelled picker is null', async () => {
-    files.openPack.mockResolvedValueOnce({ name: 'homebrew.json', contents: JSON.stringify(aPack()) });
-    expect((await service.importPicked())?.status).toBe('imported');
+    files.openPack.mockResolvedValueOnce({ name: 'homebrew.json', contents: '{"pack":true}' });
+    database.importPack.mockResolvedValue(imported);
+    expect(await service.importPicked()).toEqual(imported);
 
     files.openPack.mockResolvedValueOnce(null);
     expect(await service.importPicked()).toBeNull();
   });
 
   it('exports through the file seam under the pack key', async () => {
-    await service.import(JSON.stringify(aPack()));
+    database.exportPack.mockResolvedValue('{"pack":true}');
     files.savePack.mockResolvedValueOnce(true);
 
     expect(await service.export('my-homebrew')).toBe(true);
-    expect(files.savePack).toHaveBeenCalledWith(
-      expect.stringContaining('ember-codex.pack'),
-      'my-homebrew.json',
-    );
+    expect(files.savePack).toHaveBeenCalledWith('{"pack":true}', 'my-homebrew.json');
   });
 
   it('forwards removal and returns its outcome', async () => {
-    await service.import(JSON.stringify(aPack()));
+    database.removePack.mockResolvedValue({ removed: true });
 
     expect(await service.remove('my-homebrew')).toEqual({ removed: true });
   });

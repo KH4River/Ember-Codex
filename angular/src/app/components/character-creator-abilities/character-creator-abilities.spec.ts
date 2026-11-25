@@ -1,6 +1,6 @@
 import { TestBed } from '@angular/core/testing';
 
-import { DatabaseService } from '@/data/database.service';
+import { AbilitiesService } from '@/data/abilities.service';
 
 import { CharacterCreatorAbilities } from './character-creator-abilities';
 
@@ -10,9 +10,9 @@ describe('CharacterCreatorAbilities', () => {
       imports: [CharacterCreatorAbilities],
       providers: [
         {
-          provide: DatabaseService,
+          provide: AbilitiesService,
           useValue: {
-            abilities: async () => [
+            list: async () => [
               { id: 1, code: 'STR', name: 'Strength' },
               { id: 2, code: 'DEX', name: 'Dexterity' },
             ],
@@ -34,8 +34,8 @@ describe('CharacterCreatorAbilities', () => {
       imports: [CharacterCreatorAbilities],
       providers: [
         {
-          provide: DatabaseService,
-          useValue: { abilities: async () => Promise.reject(new Error('no connection')) },
+          provide: AbilitiesService,
+          useValue: { list: async () => Promise.reject(new Error('no connection')) },
         },
       ],
     }).compileComponents();

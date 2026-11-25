@@ -23,6 +23,7 @@
           "options": {
             "browser": "src/main.ts",
             "tsConfig": "tsconfig.app.json",
+            "webWorkerTsConfig": "tsconfig.worker.json",
             "inlineStyleLanguage": "scss",
             "assets": [
               {
@@ -43,10 +44,10 @@
                   // (~265 kB) plus Angular Material + CDK (~325 kB), all of
                   // it in use: MatTabs on the creation wizard, MatSelect on
                   // the class selector, MatFormField/MatInput on the summary.
-                  // The last ~45 kB is the 001_initial.sql text, inlined by
-                  // the generated migrations module because the app must run
-                  // the migration at startup. Note the SQLite engine itself is
-                  // NOT here: both drivers are lazily loaded.
+                  // The data layer, including the 001_initial.sql text, is the
+                  // lazy database-worker chunk: desktop never loads it because
+                  // Electron main owns the database, and mobile runs it in a
+                  // worker rather than on the UI thread.
                   // Run `npx ng build --stats-json && node
                   // ../tools/analyze-bundle.mjs` from this folder before
                   // assuming something is bloating it.
