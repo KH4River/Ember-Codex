@@ -1,0 +1,19 @@
+{
+  // Type-checks the specs that `npm test` runs outside the Angular builder.
+  // No emit: Vitest transpiles them.
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "lib": ["ES2022"],
+    "strict": true,
+    "noImplicitOverride": true,
+    "noImplicitReturns": true,
+    "noFallthroughCasesInSwitch": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "noEmit": true,
+    "types": ["vitest/globals", "node"]
+  },
+  "include": ["shared/**/*.spec.ts", "electron/**/*.spec.ts"]
+}

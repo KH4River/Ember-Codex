@@ -1,8 +1,8 @@
-import { NodeSqlitePort } from '@/testing/node-sqlite.port';
-import { runMigrations } from '@/db/migrate';
-import { MIGRATIONS } from '@/db/migrations.generated';
-import { exportPack } from '@/packs/exportPack';
-import { FIXTURE_SQL, packFixture } from '@/testing/pack-fixture';
+import { NodeSqlitePort } from '../testing/node-sqlite.port';
+import { runMigrations } from '../db/migrate';
+import { MIGRATIONS } from '../db/migrations.generated';
+import { exportPack } from './exportPack';
+import { FIXTURE_SQL, packFixture } from '../testing/pack-fixture';
 
 describe('exporting a pack', () => {
   let port: NodeSqlitePort;

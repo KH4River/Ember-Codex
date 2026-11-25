@@ -18,7 +18,9 @@
     "build": "cd angular && ng build",
     "generate:migrations": "node tools/generate-migrations.mjs",
     "watch": "cd angular && ng build --watch --configuration development",
-    "test": "cd angular && ng test"
+    "test": "npm run test:angular && npm run test:node",
+    "test:angular": "cd angular && ng test",
+    "test:node": "tsc -p tsconfig.test.json && vitest run --config vitest.node.config.ts"
   },
   "author": {
     "name": "KH4River",

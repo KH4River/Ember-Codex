@@ -1,9 +1,9 @@
-import { NodeSqlitePort } from '@/testing/node-sqlite.port';
-import { runMigrations } from '@/db/migrate';
-import { MIGRATIONS } from '@/db/migrations.generated';
-import type { PackFile } from '@/models/ContentPack';
-import { importPackText } from '@/packs/importPackText';
-import { PackValidationError } from '@/packs/validatePack';
+import { NodeSqlitePort } from '../testing/node-sqlite.port';
+import { runMigrations } from '../db/migrate';
+import { MIGRATIONS } from '../db/migrations.generated';
+import type { PackFile } from '../models/ContentPack';
+import { importPackText } from './importPackText';
+import { PackValidationError } from './validatePack';
 
 /** Text in, one of two outcomes out. The installed-key case is the reason this
  *  layer exists: the caller must not have to parse the file to find out. */

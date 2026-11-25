@@ -1,9 +1,9 @@
-import { NodeSqlitePort } from '@/testing/node-sqlite.port';
-import { runMigrations } from '@/db/migrate';
-import { MIGRATIONS } from '@/db/migrations.generated';
-import { getPack, listPacks } from '@/db/repositories/sources';
-import { importPack } from '@/packs/importPack';
-import { SRD_SQL, packFixture } from '@/testing/pack-fixture';
+import { NodeSqlitePort } from '../testing/node-sqlite.port';
+import { runMigrations } from '../db/migrate';
+import { MIGRATIONS } from '../db/migrations.generated';
+import { getPack, listPacks } from '../db/repositories/sources';
+import { importPack } from './importPack';
+import { SRD_SQL, packFixture } from '../testing/pack-fixture';
 
 /** The list is the pack table as a user sees it: the successor pointer is the
  *  only thing the source table holds that a row has to explain. */

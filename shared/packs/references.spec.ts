@@ -1,7 +1,7 @@
-import { NodeSqlitePort } from '@/testing/node-sqlite.port';
-import { runMigrations } from '@/db/migrate';
-import { MIGRATIONS } from '@/db/migrations.generated';
-import { parseReference, resolveReference, type Resolution } from '@/packs/references';
+import { NodeSqlitePort } from '../testing/node-sqlite.port';
+import { runMigrations } from '../db/migrate';
+import { MIGRATIONS } from '../db/migrations.generated';
+import { parseReference, resolveReference, type Resolution } from './references';
 
 /**
  * The reference rule against a real schema: a bare key means the importing
