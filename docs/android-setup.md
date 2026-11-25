@@ -169,6 +169,15 @@ Two files were edited by hand and would be lost if the folder were regenerated:
 
 They keep the database out of cloud backup, so a restored backup cannot arrive holding characters whose content rows no longer exist.
 
+## Data layer
+
+The Android UI thread does not own the database. `shared/db` and `shared/packs`
+run in a Web Worker, and the worker sends `DatabasePort` calls to the main
+thread, which owns the `@capacitor-community/sqlite` connection. The worker
+bundle still carries the data layer, so this is a thread boundary, not a native
+one. Desktop does not do this: Electron main owns the database there. A typed
+native plugin would remove the data layer from the webview entirely.
+
 ## iOS
 
 Not covered. Apple ships the iOS SDK only through Xcode, which needs macOS, so the iOS shell cannot be built or run from any other platform.

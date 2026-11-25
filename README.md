@@ -35,7 +35,9 @@ It is recommended to just run `npm run serve` or `ng serve` (in case the Angular
 | `npm run build` | Production Angular build |
 | `npm run build:electron` | Compile `electron/` on its own |
 | `npm run generate:migrations` | Rebuild the generated migrations module, for a reason explained below |
-| `npm run test` | Unit tests |
+| `npm run test` | Both test suites |
+| `npm run test:angular` | Angular specs through `ng test` |
+| `npm run test:node` | Shared and Electron specs through TypeScript and Vitest |
 | `npm run watch` | Development build in watch mode |
 | `npm run ng` | Pass anything through to the Angular CLI |
 | `npm run cap:sync` | Rebuild the web app and copy it into the Android project |
@@ -57,6 +59,8 @@ npm run build
 
 `verify-migration.mjs` applies the schema to an in-memory database and checks that it holds up: that every table is created, that every foreign key resolves to a real table and column, and that the rules-specific shapes behave such as HP at zero, weapon masteries, ability ceilings and rest generations. It is worth reading, since it doubles as executable documentation of what this project believes.
 
+`npm test` runs both suites: `ng test` for Angular, then `tsc -p tsconfig.test.json` followed by Vitest for the shared and Electron specs. The second suite exists because those specs sit outside the Angular workspace, where `ng test` cannot see them. `npm run test:angular` and `npm run test:node` run either side on its own.
+
 None of those three compile `electron/`, so anything touching the main process also needs `npm run build:electron`, since a TypeScript error in `electron/app.ts` would otherwise pass every gate.
 
 ## Layout
@@ -65,9 +69,9 @@ As of writing this, all Electron logic lives within the folder `electron/`.
 
 | Path | Holds |
 |---|---|
-| `angular/` | The Angular application, and `angular.json`, which is the workspace root |
-| `shared/` | Platform-agnostic code imported by both shells: the schema, migrations, repositories and models |
-| `electron/` | Main process only, being window, paths and IPC rather than application logic |
+| `angular/` | The Angular application, its specs, and `angular.json`, which is the workspace root |
+| `shared/` | Platform-agnostic code imported by both shells: the schema, migrations, repositories, models, pack logic and their specs |
+| `electron/` | Main process only: window, paths, the typed database API and IPC, plus its specs |
 | `android/` | The generated Android shell |
 | `docs/` | Android setup, and notes on an alternative tool |
 | `tools/` | Verification harnesses, which are not application code |
