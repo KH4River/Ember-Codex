@@ -17,3 +17,8 @@
 *.eot binary
 *.pdf binary
 *.zip binary
+
+# cap sync writes these generated Gradle files with LF. Check them out the
+# same way so a sync does not leave the working tree dirty.
+android/app/capacitor.build.gradle text eol=lf
+android/capacitor.settings.gradle text eol=lf
